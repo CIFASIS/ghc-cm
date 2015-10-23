@@ -158,3 +158,4 @@ test('T9577', [ unless(arch('x86_64') or arch('i386'),skip),
 
 test('T13425', normal, compile_and_run, ['-O'])
 test('castFloatWord', normal, compile_and_run, ['-dcmm-lint'])
+test('DwarfUnwindToC', [when(not rts_with_libdw() or not libs_have_debug_info(), skip)], compile_and_run, [''])
