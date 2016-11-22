@@ -2085,6 +2085,8 @@ isValidTCvSubst (TCvSubst in_scope tenv cenv) =
 -- Note [The substitution invariant].
 checkValidSubst :: HasCallStack => TCvSubst -> [Type] -> [Coercion] -> a -> a
 checkValidSubst subst@(TCvSubst in_scope tenv cenv) tys cos a
+  | otherwise = a
+  | otherwise
   = ASSERT2( isValidTCvSubst subst,
              text "in_scope" <+> ppr in_scope $$
              text "tenv" <+> ppr tenv $$
