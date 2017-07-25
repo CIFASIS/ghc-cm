@@ -420,13 +420,13 @@ then
     AC_PATH_PROG([OBJDUMP],[objdump])
     AC_PATH_PROG([DllWrap],[dllwrap])
     AC_PATH_PROG([Windres],[windres])
-
-    DllWrapCmd="$DllWrap"
-    WindresCmd="$Windres"
-
-    AC_SUBST([DllWrapCmd])
-    AC_SUBST([WindresCmd])
 fi
+
+DllWrapCmd="$DllWrap"
+WindresCmd="$Windres"
+
+AC_SUBST([DllWrapCmd])
+AC_SUBST([WindresCmd])
 
 FP_ICONV
 FP_GMP
@@ -535,6 +535,7 @@ FIND_LD([$target],[GccUseLdOpt])
 CONF_GCC_LINKER_OPTS_STAGE1="$CONF_GCC_LINKER_OPTS_STAGE1 $GccUseLdOpt"
 CONF_GCC_LINKER_OPTS_STAGE2="$CONF_GCC_LINKER_OPTS_STAGE2 $GccUseLdOpt"
 LdCmd="$LD"
+CFLAGS="$CFLAGS $GccUseLdOpt"
 AC_SUBST([LdCmd])
 
 dnl ** Which nm to use?
@@ -874,8 +875,8 @@ FP_CHECK_SIZEOF_AND_ALIGNMENT(uint64_t)
 
 
 dnl for use in settings.in
-WordSize=$ac_cv_sizeof_void_p
-AC_SUBST(WordSize)
+TargetWordSize=$ac_cv_sizeof_void_p
+AC_SUBST(TargetWordSize)
 FP_CHECK_FUNC([WinExec],
   [@%:@include <windows.h>], [WinExec("",0)])
 

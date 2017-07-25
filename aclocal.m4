@@ -230,8 +230,7 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         dec|none|unknown|hp|apple|next|sun|sgi|ibm|montavista|portbld)
             ;;
         *)
-            echo "Unknown vendor [$]1"
-            exit 1
+            AC_MSG_WARN([Unknown vendor [$]1])
             ;;
         esac
     }
@@ -322,9 +321,18 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
     dnl so we empty CFLAGS while running this test
     CFLAGS2="$CFLAGS"
     CFLAGS=
+    case $TargetArch in
+      arm)
+        dnl See #13937.
+        progbits="%progbits"
+        ;;
+      *)
+        progbits="@progbits"
+        ;;
+    esac
     AC_MSG_CHECKING(for GNU non-executable stack support)
     AC_COMPILE_IFELSE(
-        [AC_LANG_PROGRAM([__asm__ (".section .note.GNU-stack,\"\",@progbits");], [0])],
+        [AC_LANG_PROGRAM([__asm__ (".section .note.GNU-stack,\"\",$progbits");], [0])],
         [AC_MSG_RESULT(yes)
          HaskellHaveGnuNonexecStack=True],
         [AC_MSG_RESULT(no)
@@ -1740,11 +1748,6 @@ AC_DEFUN([FP_CURSES],
   dnl * Deal with arguments telling us curses is somewhere odd
   dnl--------------------------------------------------------------------
 
-  AC_ARG_WITH([curses-includes],
-    [AC_HELP_STRING([--with-curses-includes],
-      [directory containing curses headers])],
-      [CURSES_INCLUDE_DIRS=$withval])
-
   AC_ARG_WITH([curses-libraries],
     [AC_HELP_STRING([--with-curses-libraries],
       [directory containing curses libraries])],
@@ -2032,7 +2035,7 @@ AC_DEFUN([CHECK_LD_COPY_BUG],[
           .size object_reference, 4
 EOF
 
-        cat >aclib.s <<-EOF 
+        cat >aclib.s <<-EOF
           .data
           .globl data_object
           .type data_object, %object
@@ -2057,6 +2060,8 @@ EOF
         else
             AC_MSG_RESULT([unaffected])
         fi
+
+        rm -f aclib.s aclib.o aclib.so actest.s actest.o actest
         ;;
       *)
         ;;
@@ -2278,18 +2283,20 @@ AC_DEFUN([FIND_LD],[
       [enable_ld_override=yes])
 
     if test "x$enable_ld_override" = "xyes"; then
-        AC_CHECK_TARGET_TOOLS([LD], [ld.gold ld.lld ld])
-        UseLd=''
+        AC_CHECK_TARGET_TOOLS([TmpLd], [ld.gold ld.lld ld])
 
-        out=`$LD --version`
+        out=`$TmpLd --version`
         case $out in
           "GNU ld"*)   FP_CC_LINKER_FLAG_TRY(bfd, $2) ;;
           "GNU gold"*) FP_CC_LINKER_FLAG_TRY(gold, $2) ;;
           "LLD"*)      FP_CC_LINKER_FLAG_TRY(lld, $2) ;;
           *) AC_MSG_NOTICE([unknown linker version $out]) ;;
         esac
-        if test "z$2" = "z"; then
-            AC_MSG_NOTICE([unable to convince '$CC' to use linker '$LD'])
+        if test "z$$2" = "z"; then
+            AC_MSG_NOTICE([unable to convince '$CC' to use linker '$TmpLd'])
+            AC_CHECK_TARGET_TOOL([LD], [ld])
+        else
+            LD="$TmpLd"
         fi
    else
         AC_CHECK_TARGET_TOOL([LD], [ld])
