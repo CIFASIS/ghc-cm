@@ -19,6 +19,7 @@ module LlvmCodeGen.Base (
         markStackReg, checkStackReg,
         funLookup, funInsert, getLlvmVer, getDynFlags, getDynFlag, getLlvmPlatform,
         dumpIfSetLlvm, renderLlvm, markUsedVar, getUsedVars,
+        addMetaDecl, getMetaDecls, addSubprogram, getSubprograms,
         ghcInternalFunctions,
 
         getMetaUniqueId,
@@ -54,6 +55,7 @@ import UniqSet
 import UniqSupply
 import ErrUtils
 import qualified Stream
+import Hoopl.Label ( Label )
 
 import Control.Monad (ap)
 
@@ -61,7 +63,7 @@ import Control.Monad (ap)
 -- * Some Data Types
 --
 
-type LlvmCmmDecl = GenCmmDecl [LlvmData] (Maybe CmmStatics) (ListGraph LlvmStatement)
+type LlvmCmmDecl = GenCmmDecl [LlvmData] (Label, Maybe CmmStatics) (ListGraph LlvmStatement)
 type LlvmBasicBlock = GenBasicBlock LlvmStatement
 
 -- | Global registers live on proc entry
@@ -197,6 +199,9 @@ data LlvmEnv = LlvmEnv
   , envFunMap :: LlvmEnvMap        -- ^ Global functions so far, with type
   , envAliases :: UniqSet LMString -- ^ Globals that we had to alias, see [Llvm Forward References]
   , envUsedVars :: [LlvmVar]       -- ^ Pointers to be added to llvm.used (see @cmmUsedLlvmGens@)
+  , envMetaDecls :: [MetaDecl]     -- ^ Metadata declarations to be included in final output
+  , envSubprograms :: [MetaId]     -- ^ 'MetaId's of the @DISubprogram@ metadata
+                                   -- nodes defined in this @DICompileUnit@.
 
     -- the following get cleared for every function (see @withClearVars@)
   , envVarMap :: LlvmEnvMap        -- ^ Local variables so far, with type
@@ -250,6 +255,8 @@ runLlvm dflags ver out us m = do
                       , envVarMap = emptyUFM
                       , envStackRegs = []
                       , envUsedVars = []
+                      , envMetaDecls = []
+                      , envSubprograms = []
                       , envAliases = emptyUniqSet
                       , envVersion = ver
                       , envDynFlags = dflags
@@ -356,6 +363,24 @@ setUniqMeta f m = modifyEnv $ \env -> env { envUniqMeta = addToUFM (envUniqMeta 
 -- | Gets metadata node for given unique
 getUniqMeta :: Unique -> LlvmM (Maybe MetaId)
 getUniqMeta s = getEnv (flip lookupUFM s . envUniqMeta)
+
+-- | Add a @DISubprogram@ metadata declaration to the current compilation unit.
+addSubprogram :: MetaId -> MetaExpr -> LlvmM ()
+addSubprogram metaId metaExpr = do
+    modifyEnv $ \env -> env { envSubprograms = metaId : envSubprograms env }
+    addMetaDecl (MetaUnnamed metaId metaExpr)
+
+getSubprograms :: LlvmM [MetaId]
+getSubprograms = LlvmM $ \env -> return (envSubprograms env, env { envSubprograms = [] })
+
+-- | Add a metadata declaration to the output.
+addMetaDecl :: MetaDecl -> LlvmM ()
+addMetaDecl x = modifyEnv $ \env -> env { envMetaDecls = x : envMetaDecls env }
+
+-- | Retreive the list of metadata declarations found in the
+-- current compilation unit.
+getMetaDecls :: LlvmM [MetaDecl]
+getMetaDecls = LlvmM $ \env -> return (envMetaDecls env, env { envMetaDecls = [] })
 
 -- ----------------------------------------------------------------------------
 -- * Internal functions

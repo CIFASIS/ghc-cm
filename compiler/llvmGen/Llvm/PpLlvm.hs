@@ -130,7 +130,7 @@ ppLlvmFunction fun =
                         Just v  -> text "prefix" <+> ppr v
                         Nothing -> empty
     in text "define" <+> ppLlvmFunctionHeader (funcDecl fun) (funcArgs fun)
-        <+> attrDoc <+> secDoc <+> prefixDoc
+        <+> attrDoc <+> secDoc <+> prefixDoc <+> ppMetaAnnots (funcMetadata fun)
         $+$ lbrace
         $+$ ppLlvmBlocks (funcBody fun)
         $+$ rbrace
@@ -468,16 +468,16 @@ ppInsert vec elt idx =
 
 
 ppMetaStatement :: [MetaAnnot] -> LlvmStatement -> SDoc
-ppMetaStatement meta stmt = ppLlvmStatement stmt <> ppMetaAnnots meta
+ppMetaStatement meta stmt = ppLlvmStatement stmt <> comma <+> ppMetaAnnots meta
 
 ppMetaExpr :: [MetaAnnot] -> LlvmExpression -> SDoc
-ppMetaExpr meta expr = ppLlvmExpression expr <> ppMetaAnnots meta
+ppMetaExpr meta expr = ppLlvmExpression expr <> comma <+> ppMetaAnnots meta
 
 ppMetaAnnots :: [MetaAnnot] -> SDoc
-ppMetaAnnots meta = hcat $ map ppMeta meta
+ppMetaAnnots meta = hcat $ punctuate comma $ map ppMeta meta
   where
     ppMeta (MetaAnnot name e)
-        = comma <+> exclamation <> ftext name <+>
+        = exclamation <> ftext name <+>
           case e of
             MetaNode n    -> ppr n
             MetaStruct ms -> exclamation <> braces (ppCommaJoin ms)

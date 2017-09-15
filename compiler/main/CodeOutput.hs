@@ -95,7 +95,7 @@ codeOutput dflags this_mod filenm location foreign_stubs foreign_files pkg_deps
              HscAsm         -> outputAsm dflags this_mod location filenm
                                          linted_cmm_stream;
              HscC           -> outputC dflags filenm linted_cmm_stream pkg_deps;
-             HscLlvm        -> outputLlvm dflags filenm linted_cmm_stream;
+             HscLlvm        -> outputLlvm dflags location filenm linted_cmm_stream;
              HscInterpreted -> panic "codeOutput: HscInterpreted";
              HscNothing     -> panic "codeOutput: HscNothing"
           }
@@ -180,13 +180,13 @@ outputAsm dflags this_mod location filenm cmm_stream
 ************************************************************************
 -}
 
-outputLlvm :: DynFlags -> FilePath -> Stream IO RawCmmGroup () -> IO ()
-outputLlvm dflags filenm cmm_stream
+outputLlvm :: DynFlags -> ModLocation -> FilePath -> Stream IO RawCmmGroup () -> IO ()
+outputLlvm dflags location filenm cmm_stream
   = do ncg_uniqs <- mkSplitUniqSupply 'n'
 
        {-# SCC "llvm_output" #-} doOutput filenm $
            \f -> {-# SCC "llvm_CodeGen" #-}
-                 llvmCodeGen dflags f ncg_uniqs cmm_stream
+                 llvmCodeGen dflags location f ncg_uniqs cmm_stream
 
 {-
 ************************************************************************
