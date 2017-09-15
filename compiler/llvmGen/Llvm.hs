@@ -43,6 +43,7 @@ module Llvm (
 
         -- ** Metadata types
         MetaExpr(..), MetaAnnot(..), MetaDecl(..), MetaId(..),
+        Distinction(..),
 
         -- ** Operations on the type system.
         isGlobal, getLitType, getVarType,

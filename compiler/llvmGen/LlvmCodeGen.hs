@@ -113,29 +113,29 @@ debugInfoGen location
         getMetaDecls >>= renderLlvm . ppLlvmMetas
         subprograms <- getSubprograms
         renderLlvm $ ppLlvmMetas
-            [ MetaUnnamed fileMeta $ MetaDIFile
+            [ MetaUnnamed fileMeta NotDistinct $ MetaDIFile
               { difFilename     = fsLit $ fromMaybe "TODO" (ml_hs_file location)
               , difDirectory    = fsLit ""
               }
-            , MetaUnnamed cuMeta $ MetaDICompileUnit
+            , MetaUnnamed cuMeta Distinct $ MetaDICompileUnit
               { dicuLanguage    = fsLit "DW_LANG_Haskell"
               , dicuFile        = fileMeta
               , dicuProducer    = fsLit "ghc"
               , dicuIsOptimized = optLevel dflags > 0
               , dicuSubprograms = MetaStruct $ map MetaNode subprograms
               }
-            , MetaNamed (fsLit "llvm.dbg.cu") [ cuMeta ]
-            , MetaUnnamed subprogramsMeta $ MetaStruct []
-            , MetaNamed (fsLit "llvm.module.flags")
+            , MetaNamed (fsLit "llvm.dbg.cu") NotDistinct [ cuMeta ]
+            , MetaUnnamed subprogramsMeta NotDistinct $ MetaStruct []
+            , MetaNamed (fsLit "llvm.module.flags") NotDistinct
               [ dwarfVersionMeta
               , debugInfoVersionMeta
               ]
-            , MetaUnnamed dwarfVersionMeta $ MetaStruct
+            , MetaUnnamed dwarfVersionMeta NotDistinct $ MetaStruct
               [ MetaVar $ LMLitVar $ LMIntLit 2 i32
               , MetaStr $ fsLit "Dwarf Version"
               , MetaVar $ LMLitVar $ LMIntLit 4 i32
               ]
-            , MetaUnnamed debugInfoVersionMeta $ MetaStruct
+            , MetaUnnamed debugInfoVersionMeta NotDistinct $ MetaStruct
               [ MetaVar $ LMLitVar $ LMIntLit 2 i32
               , MetaStr $ fsLit "Debug Info Version"
               , MetaVar $ LMLitVar $ LMIntLit 3 i32
@@ -252,7 +252,7 @@ cmmMetaLlvmPrelude = do
     setUniqMeta uniq tbaaId
     parentId <- maybe (return Nothing) getUniqMeta parent
     -- Build definition
-    return $ MetaUnnamed tbaaId $ MetaStruct $
+    return $ MetaUnnamed tbaaId NotDistinct $ MetaStruct $
           case parentId of
               Just p  -> [ MetaStr name, MetaNode p ]
               -- As of LLVM 4.0, a node without parents should be rendered as

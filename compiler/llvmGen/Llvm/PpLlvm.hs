@@ -106,14 +106,17 @@ ppLlvmMetas metas = vcat $ map ppLlvmMeta metas
 
 -- | Print out an LLVM metadata definition.
 ppLlvmMeta :: MetaDecl -> SDoc
-ppLlvmMeta (MetaUnnamed n m)
-  = ppr n <+> equals <+> ppr m
+ppLlvmMeta meta =
+    case meta of
+      MetaUnnamed n d m -> ppr n <+> equals <+> ppDistinction d <+> ppr m
+      MetaNamed n d m   ->
+          let nodes = hcat $ intersperse comma $ map ppr m
+          in exclamation <> ftext n <+> equals
+             <+> ppDistinction d <+> exclamation <> braces nodes
 
-ppLlvmMeta (MetaNamed n m)
-  = exclamation <> ftext n <+> equals <+> exclamation <> braces nodes
-  where
-    nodes = hcat $ intersperse comma $ map ppr m
-
+ppDistinction :: Distinction -> SDoc
+ppDistinction Distinct    = text "distinct"
+ppDistinction NotDistinct = empty
 
 -- | Print out a list of function definitions.
 ppLlvmFunctions :: LlvmFunctions -> SDoc
