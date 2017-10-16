@@ -354,7 +354,8 @@ type DynTag = Int       -- The tag on a *pointer*
 --    * big, otherwise.
 --
 -- Small families can have the constructor tag in the tag bits.
--- Big families only use the tag value 1 to represent evaluatedness.
+-- Big families only use the tag value 1..mAX_PTR_TAG to represent
+-- evaluatedness, the last one lumping together all overflowing ones.
 -- We don't have very many tag bits: for example, we have 2 bits on
 -- x86-32 and 3 bits on x86-64.
 
@@ -364,10 +365,12 @@ isSmallFamily dflags fam_size = fam_size <= mAX_PTR_TAG dflags
 tagForCon :: DynFlags -> DataCon -> DynTag
 tagForCon dflags con
   | isSmallFamily dflags fam_size = con_tag
-  | otherwise                     = 1
+  | con_tag < max_tag             = con_tag
+  | otherwise                     = max_tag
   where
     con_tag  = dataConTag con -- NB: 1-indexed
     fam_size = tyConFamilySize (dataConTyCon con)
+    max_tag = mAX_PTR_TAG dflags
 
 tagForArity :: DynFlags -> RepArity -> DynTag
 tagForArity dflags arity
