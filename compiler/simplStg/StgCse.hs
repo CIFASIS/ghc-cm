@@ -1,4 +1,5 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies, LambdaCase #-}
+{-# OPTIONS -Wno-error=unused-imports -Wno-error=unused-top-binds #-}
 
 {-|
 Note [CSE for Stg]
@@ -12,6 +13,13 @@ This was originally reported as #9291.
 There are two types of common code occurrences that we aim for, see
 note [Case 1: CSEing allocated closures] and
 note [Case 2: CSEing case binders] below.
+
+TODOs:
+- vanilla for unpacked tuples?
+- rerun occurrence analysis
+- dumping of STG misses binder
+- does not look up in scope to find low-hanging fruit
+- can we dedup info tables for representationally equal data constructors?
 
 
 Note [Case 1: CSEing allocated closures]
@@ -83,13 +91,16 @@ import Data.Maybe (fromMaybe)
 import TrieMap
 import NameEnv
 import Control.Monad( (>=>) )
+import Name (NamedThing (..), mkFCallName, nameUnique)
+import Unique (mkUniqueGrimily, getKey, getUnique)
+import TyCon (tyConFamilySize)
 
 --------------
 -- The Trie --
 --------------
 
 -- A lookup trie for data constructor applications, i.e.
--- keys of type `(DataCon, [StgArg])`, following the patterns in TrieMap.
+-- keys of type `(LaxDataCon, [StgArg])`, following the patterns in TrieMap.
 
 data StgArgMap a = SAM
     { sam_var :: DVarEnv a
@@ -110,14 +121,35 @@ instance TrieMap StgArgMap where
 
 newtype ConAppMap a = CAM { un_cam :: DNameEnv (ListMap StgArgMap a) }
 
+newtype LaxDataCon = Lax DataCon
+
+instance NamedThing LaxDataCon where
+  getName (Lax dc) | long && isVanillaDataCon dc && not hasStrict && not unpacked = mkFCallName uniq "" -- FIXME: is there a better way?
+    where uniq = mkUniqueGrimily . negate $ dataConTag dc * 1048576 + length (dataConOrigArgTys dc) -- FIXME
+          hasStrict = any (\case HsLazy -> False; _ -> True) (dataConImplBangs dc)
+          unpacked = isUnboxedTupleCon dc || isUnboxedSumCon dc
+          long = dataConTag dc < 7 && (null $ dataConOrigArgTys dc) -- True -- length (dataConOrigArgTys dc) > 0
+  getName (Lax dc) = getName dc
+
+
 instance TrieMap ConAppMap where
-    type Key ConAppMap = (DataCon, [StgArg])
+    type Key ConAppMap = (LaxDataCon, [StgArg])
     emptyTM  = CAM emptyTM
+    --lookupTM (dataCon, _) | traceLookup dataCon = undefined
     lookupTM (dataCon, args) = un_cam >.> lkDNamed dataCon >=> lookupTM args
     alterTM  (dataCon, args) f m =
         m { un_cam = un_cam m |> xtDNamed dataCon |>> alterTM args f }
     foldTM k = un_cam >.> foldTM (foldTM k)
     mapTM f  = un_cam >.> mapTM (mapTM f) >.> CAM
+
+traceLookup :: LaxDataCon -> Bool
+traceLookup _ = False
+{-
+traceLookup l@(Lax dc) = pprTrace "lookupTM" (ppr dc <> (if getKey u < 0 then text " -" else text " ") <> ppr u') False
+  where u = nameUnique . getName $ l
+        u' = mkUniqueGrimily (abs(getKey u))
+-}
+{-# NOINLINE traceLookup #-}
 
 -----------------
 -- The CSE Env --
@@ -179,15 +211,17 @@ initEnv in_scope = CseEnv
     , ce_in_scope  = in_scope
     }
 
-envLookup :: DataCon -> [OutStgArg] -> CseEnv -> Maybe OutId
+envLookup :: LaxDataCon -> [OutStgArg] -> CseEnv -> Maybe OutId
 envLookup dataCon args env = lookupTM (dataCon, args') (ce_conAppMap env)
   where args' = map go args -- See Note [Trivial case scrutinee]
         go (StgVarArg v  ) = StgVarArg (fromMaybe v $ lookupVarEnv (ce_bndrMap env) v)
         go (StgLitArg lit) = StgLitArg lit
 
-addDataCon :: OutId -> DataCon -> [OutStgArg] -> CseEnv -> CseEnv
+addDataCon :: OutId -> LaxDataCon -> [OutStgArg] -> CseEnv -> CseEnv
 -- do not bother with nullary data constructors, they are static anyways
-addDataCon _ _ [] env = env
+addDataCon bndr dataCon [] env = env { ce_conAppMap = new_env }
+  where new_env = alterTM (dataCon, []) (\case Nothing -> pure bndr; p -> p) (ce_conAppMap env)
+--addDataCon _ _ [] env = env
 addDataCon bndr dataCon args env = env { ce_conAppMap = new_env }
   where
     new_env = insertTM (dataCon, args) bndr (ce_conAppMap env)
@@ -307,12 +341,14 @@ stgCseExpr env (StgCase scrut bndr ty alts)
 
 -- A constructor application.
 -- To be removed by a variable use when found in the CSE environment
-stgCseExpr env (StgConApp dataCon args tys)
-    | Just bndr' <- envLookup dataCon args' env
-    = StgApp bndr' []
+stgCseExpr env orig@(StgConApp dataCon args tys)
+    | Just bndr' <- envLookup dc args' env
+    = (if getKey u < 0 then pprTrace "stgCseExpr" (ppr dataCon <+> text (show $ length (dataConOrigArgTys dataCon)) <+> (text . show $ tyConFamilySize (dataConTyCon dataCon))) else id) $ StgApp bndr' []
     | otherwise
     = StgConApp dataCon args' tys
   where args' = substArgs env args
+        dc = Lax dataCon
+        u = getUnique (getName dc)
 
 -- Let bindings
 -- The binding might be removed due to CSE (we do not want trivial bindings on
@@ -332,7 +368,7 @@ stgCseExpr env (StgLetNoEscape binds body)
 stgCseAlt :: CseEnv -> OutId -> InStgAlt -> OutStgAlt
 stgCseAlt env case_bndr (DataAlt dataCon, args, rhs)
     = let (env1, args') = substBndrs env args
-          env2 = addDataCon case_bndr dataCon (map StgVarArg args') env1
+          env2 = addDataCon case_bndr (Lax dataCon) (map StgVarArg args') env1
             -- see note [Case 2: CSEing case binders]
           rhs' = stgCseExpr env2 rhs
       in (DataAlt dataCon, args', rhs')
@@ -367,11 +403,11 @@ stgCsePairs env0 ((b,e):pairs)
 -- If it is a constructor application, either short-cut it or extend the environment
 stgCseRhs :: CseEnv -> OutId -> InStgRhs -> (Maybe (OutId, OutStgRhs), CseEnv)
 stgCseRhs env bndr (StgRhsCon ccs dataCon args)
-    | Just other_bndr <- envLookup dataCon args' env
+    | Just other_bndr <- envLookup (Lax dataCon) args' env
     = let env' = addSubst bndr other_bndr env
       in (Nothing, env')
     | otherwise
-    = let env' = addDataCon bndr dataCon args' env
+    = let env' = addDataCon bndr (Lax dataCon) args' env
             -- see note [Case 1: CSEing allocated closures]
           pair = (bndr, StgRhsCon ccs dataCon args')
       in (Just pair, env')
