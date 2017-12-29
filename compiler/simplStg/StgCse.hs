@@ -95,6 +95,8 @@ import Name (NamedThing (..), mkFCallName)
 import Unique (mkUniqueGrimily, getKey, getUnique)
 import TyCon (tyConFamilySize)
 
+import Data.List (partition)
+
 --------------
 -- The Trie --
 --------------
@@ -418,7 +420,8 @@ mkStgCase scrut bndr ty alts | all isBndr alts = scrut
     isBndr (_, _, StgApp f []) = f == bndr
     isBndr _                   = False
     -- see Note [Lumping alternatives together]
-    grouped alts | any isBndr alts = pprTrace "mkStgCase" (ppr alts) Nothing
+    grouped ((DEFAULT, _, _) : alts) | any isBndr alts = pprTrace "mkStgCaseDEFAULT" (ppr alts) Nothing
+    grouped alts | (bs@(_:_:_),rest) <- partition isBndr alts = pprTrace "mkStgCase" (ppr bs) $ Just ((DEFAULT, []{-FIXME-}, StgApp bndr []) : rest)
     grouped _ = Nothing
 
 -- Utilities
