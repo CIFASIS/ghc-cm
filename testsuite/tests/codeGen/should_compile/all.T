@@ -38,7 +38,8 @@ test('T12355', normal, compile, [''])
 test('T14373a', [],
      multimod_compile, ['T14373a', '-fasm -O2 -ddump-cmm-from-stg -dsuppress-uniques'])
 test('T14373b', [],
-     multimod_compile, ['T14373b', '-fasm -O2 -ddump-cmm-from-stg -dsuppress-uniques'])
+     multimod_compile, ['T14373b', '-v -O2 -dsuppress-uniques'])
+#     multimod_compile, ['T14373b', '-fasm -O2 -ddump-cmm-from-stg -dsuppress-uniques'])
 test('T14626',
      normal,
      run_command, ['$MAKE -s --no-print-directory T14626'])

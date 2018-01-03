@@ -835,6 +835,8 @@ cgIdApp fun_id args = do
         n_args      = length args
         v_args      = length $ filter (isVoidTy . stgArgType) args
         node_points dflags = nodeMustPointToIt dflags lf_info
+        --okay LFThunk{} = True
+        --okay _ = False
     case getCallMethod dflags fun_name cg_fun_id lf_info n_args v_args (cg_loc fun_info) self_loop_info of
             -- A value in WHNF, so we can just return it.
         ReturnIt
@@ -843,8 +845,8 @@ cgIdApp fun_id args = do
           -- ToDo: does ReturnIt guarantee tagged?
 
         EnterIt -> ASSERT( null args )  -- Discarding arguments
-                   ASSERT2( not (isEvaldUnfolding (idUnfolding fun_id)), ppr fun_id <+> ppr (idUnfolding fun_id) $$ ppr cg_fun_id <+> ppr (idUnfolding cg_fun_id))
-                   if isEvaldUnfolding (idUnfolding fun_id) then pprPanic "cgIdApp" (ppr fun_id <+> ppr (idUnfolding fun_id) $$ ppr cg_fun_id <+> ppr (idUnfolding cg_fun_id)) else emitEnter fun
+                   --ASSERT2( okay lf_info || not (isEvaldUnfolding (idUnfolding fun_id)), ppr fun_id <+> ppr (idUnfolding fun_id) $$ ppr cg_fun_id <+> ppr (idUnfolding cg_fun_id))
+                   if isEvaldUnfolding (idUnfolding fun_id) then pprTrace "cgIdApp" (ppr fun_id <+> ppr (idUnfolding fun_id) $$ ppr cg_fun_id <+> ppr (idUnfolding cg_fun_id)) $ emitEnter fun else emitEnter fun
 
         SlowCall -> do      -- A slow function call via the RTS apply routines
                 { tickySlowCall lf_info args
