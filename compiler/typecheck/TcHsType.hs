@@ -18,8 +18,8 @@ module TcHsType (
         tcHsDeriv, tcHsVectInst,
         tcHsTypeApp,
         UserTypeCtxt(..),
-        tcImplicitTKBndrs, tcImplicitTKBndrsX, tcImplicitTKBndrsSig,
-        tcExplicitTKBndrs, tcExplicitTKBndrsX, tcExplicitTKBndrsSig,
+        tcImplicitTKBndrs, tcImplicitTKBndrsX,
+        tcExplicitTKBndrs, tcExplicitTKBndrsX,
         kcExplicitTKBndrs, kcImplicitTKBndrs,
 
                 -- Type checking type and class decls
@@ -1806,14 +1806,6 @@ tcExplicitTKBndrs :: SkolemInfo
 -- No cloning: returned TyVars have the same Name as the incoming LHsTyVarBndrs
 tcExplicitTKBndrs = tcExplicitTKBndrsX newSkolemTyVar
 
--- | This brings a bunch of tyvars into scope as SigTvs, where they can unify
--- with other type *variables* only.
-tcExplicitTKBndrsSig :: SkolemInfo
-                     -> [LHsTyVarBndr GhcRn]
-                     -> TcM a
-                     -> TcM ([TcTyVar], a)
-tcExplicitTKBndrsSig = tcExplicitTKBndrsX newSigTyVar
-
 tcExplicitTKBndrsX :: (Name -> Kind -> TcM TyVar)
                    -> SkolemInfo
                    -> [LHsTyVarBndr GhcRn]
@@ -2470,7 +2462,7 @@ tcHsPatSigType ctxt sig_ty
 
     new_tv = case ctxt of
                RuleSigCtxt {} -> newSkolemTyVar
-               _              -> newSigTyVar
+               _              -> newTauTyVar
       -- See Note [Pattern signature binders]
       -- See Note [Unifying SigTvs]
 
