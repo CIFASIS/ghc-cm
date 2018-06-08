@@ -1,0 +1,6 @@
+
+NoSuper.hs:9:1: error:
+    • Bad morphism declaration
+    • No generic way to obtain an instance for the C b superclass of B b
+      In the morphism declaration
+        ‘class morphism A -> B -- Defined at NoSuper.hs:9:1’

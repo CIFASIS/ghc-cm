@@ -1,0 +1,6 @@
+
+T.hs:9:1: error:
+    • Bad morphism declaration
+    • No generic way to obtain an instance for the A a superclass of M a
+      In the morphism declaration
+        ‘class morphism AM -> M -- Defined at T.hs:9:1’

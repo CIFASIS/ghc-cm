@@ -1,0 +1,9 @@
+
+BadMethod.hs:8:9: error:
+    • Couldn't match type ‘[Char]’ with ‘Int’
+      Expected type: Int
+        Actual type: String
+    • In the expression: f a
+      In an equation for ‘g’: g a = f a
+      In the morphism declaration
+        ‘class morphism A -> B -- Defined at BadMethod.hs:7:1’
