@@ -54,7 +54,7 @@ import IfaceEnv( externaliseName )
 import TcHsType
 import TcValidity( checkValidType )
 import TcMatches
-import Inst( deeplyInstantiate )
+import Inst( deeplyInstantiate, cover, info_cls, tcExtendLocalInstEnv )
 import TcUnify( checkConstraints )
 import RnTypes
 import RnExpr
@@ -108,6 +108,7 @@ import ErrUtils
 import Id
 import IdInfo( IdDetails(..) )
 import VarEnv
+import Var ( varType )
 import Module
 import UniqFM
 import Name
@@ -1669,8 +1670,35 @@ tcTyClsInstDecls tycl_decls deriv_decls binds
               <- tcInstDeclsDeriv datafam_deriv_info tyclds deriv_decls
           ; setGblEnv tcg_env' $ do {
                 failIfErrsM
-              ; pure (tcg_env', inst_info' ++ inst_info, morph_info, val_binds)
+
+              ; force_into_scope -- FIXME: Really important to fix this!! We are breaking laziness
+
+              -- Generate new instances via morphisms, and their bindings
+              ; insts_morphs <- cover
+              ; let cls_insts = map info_cls insts_morphs
+              ; binds <- mapM mkBind insts_morphs
+
+              -- Splice them into the context
+              ; tcg_env'' <- tcExtendLocalInstEnv cls_insts $ getGblEnv
+              ; let tcg_env''' = addTypecheckedBinds tcg_env'' binds
+              ; pure (tcg_env''', inst_info' ++ inst_info, morph_info, val_binds)
       }}}
+
+force_into_scope :: TcM ()
+force_into_scope = force_into_scope' 0
+
+force_into_scope' :: Int -> TcM ()
+force_into_scope' n = do
+  eps <- getEps
+  let all_insts = instEnvElts $ eps_inst_env eps
+  ---------------------------------------
+  -- This is the portion of code (inside mapply, inside cover) that brings into scope more instances
+  _ <- mapM (\ispec -> do let (d_tyvs, _, _, _) = tcSplitDFunTy (varType (is_dfun ispec))
+                          freshenTyVarBndrs d_tyvs) all_insts
+  ---------------------------------------
+  eps' <- getEps
+  let m = length $ instEnvElts $ eps_inst_env eps'
+  if m > n then force_into_scope' m else return ()
 
 {- *********************************************************************
 *                                                                      *

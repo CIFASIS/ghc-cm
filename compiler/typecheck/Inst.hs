@@ -31,6 +31,8 @@ module Inst (
        -- Simple functions over evidence variables
        tyCoVarsOfWC,
        tyCoVarsOfCt, tyCoVarsOfCts,
+       expandTheta, expandSig, cover,
+
     ) where
 
 #include "HsVersions.h"
@@ -973,3 +975,13 @@ instance Outputable ClsInstMorph where
          <+> ppr (info_cls ci)
          <+> text "generated with morphism "
          <+> ppr (info_morph ci)
+
+-- Stubs
+expandTheta :: [Type] -> TcM [Type]
+expandTheta = return
+
+expandSig :: TcIdSigInfo -> TcM TcIdSigInfo
+expandSig = return
+
+cover :: TcM [ClsInstMorph]
+cover = return []
