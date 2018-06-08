@@ -174,6 +174,11 @@ deriving instance Data (ClsInstDecl GhcPs)
 deriving instance Data (ClsInstDecl GhcRn)
 deriving instance Data (ClsInstDecl GhcTc)
 
+-- deriving instance (DataIdLR p p) => Data (MorphDecl p)
+deriving instance Data (MorphDecl GhcPs)
+deriving instance Data (MorphDecl GhcRn)
+deriving instance Data (MorphDecl GhcTc)
+
 -- deriving instance (DataIdLR p p) => Data (InstDecl p)
 deriving instance Data (InstDecl GhcPs)
 deriving instance Data (InstDecl GhcRn)

@@ -36,6 +36,7 @@ module HsDecls (
 
   -- ** Instance declarations
   InstDecl(..), LInstDecl, FamilyInfo(..),
+  MorphDecl(..), LMorphDecl,
   TyFamInstDecl(..), LTyFamInstDecl, instDeclDataFamInsts,
   DataFamInstDecl(..), LDataFamInstDecl,
   pprDataFamInstFlavour, pprHsFamInstLHS,
@@ -1668,6 +1669,18 @@ data ClsInstDecl pass
 type instance XCClsInstDecl    (GhcPass _) = NoExt
 type instance XXClsInstDecl    (GhcPass _) = NoExt
 
+----------------- Morphism --------------------
+-- | Located Morphism Declaration
+type LMorphDecl pass = Located (MorphDecl pass)
+
+-- | Morphism Declaration
+data MorphDecl pass
+  = MorphDecl
+     { morph_ant         :: LHsType pass
+     , morph_con         :: LHsType pass
+     , morph_binds       :: LHsBinds pass
+     }
+
 ----------------- Instances of all kinds -------------
 
 -- | Located Instance Declaration
@@ -1685,6 +1698,8 @@ data InstDecl pass  -- Both class and family instances
       { tfid_ext  :: XTyFamInstD pass
       , tfid_inst :: TyFamInstDecl pass }
   | XInstDecl (XXInstDecl pass)
+  | MorphD                 -- morphism declaration
+      { morph_decl :: MorphDecl pass}
 
 type instance XClsInstD     (GhcPass _) = NoExt
 type instance XDataFamInstD (GhcPass _) = NoExt
@@ -1802,6 +1817,24 @@ instance (p ~ GhcPass pass, OutputableBndrId p)
                                              <+> ppr inst_ty
     ppr (XClsInstDecl x) = ppr x
 
+instance (p ~ GhcPass pass, OutputableBndrId p)
+       => Outputable (MorphDecl p) where
+  ppr (MorphDecl { morph_ant = ant
+                 , morph_con = con
+                 , morph_binds = mbinds })
+    | isEmptyBag mbinds
+    = top_matter
+
+    | otherwise
+    = top_matter
+   <+> text "where"
+   <+> pprLHsBinds mbinds
+      where
+        top_matter = text "class morphism"
+                     <+> ppr ant
+                     <+> text "->"
+                     <+> ppr con
+
 ppDerivStrategy :: (p ~ GhcPass pass, OutputableBndrId p)
                 => Maybe (LDerivStrategy p) -> SDoc
 ppDerivStrategy mb =
@@ -1828,6 +1861,7 @@ instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (InstDecl p) where
     ppr (TyFamInstD   { tfid_inst = decl }) = ppr decl
     ppr (DataFamInstD { dfid_inst = decl }) = ppr decl
     ppr (XInstDecl x) = ppr x
+    ppr (MorphD       { morph_decl = decl }) = ppr decl
 
 -- Extract the declarations of associated data types from an instance
 
@@ -1841,6 +1875,7 @@ instDeclDataFamInsts inst_decls
     do_one (L _ (TyFamInstD {}))                              = []
     do_one (L _ (ClsInstD _ (XClsInstDecl _))) = panic "instDeclDataFamInsts"
     do_one (L _ (XInstDecl _))                 = panic "instDeclDataFamInsts"
+    do_one (L _ (MorphD {}))                                  = []
 
 {-
 ************************************************************************

@@ -1226,6 +1226,7 @@ hsLInstDeclBinders (dL->L _ (ClsInstD _ (XClsInstDecl {})))
   = panic "hsLInstDeclBinders"
 hsLInstDeclBinders (dL->L _ (XInstDecl _))
   = panic "hsLInstDeclBinders"
+hsLInstDeclBinders (L _ (MorphD {})) = mempty
 hsLInstDeclBinders _ = panic "hsLInstDeclBinders: Impossible Match"
                              -- due to #15884
 

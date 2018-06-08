@@ -630,6 +630,7 @@ data Token
   | ITstock
   | ITanyclass
   | ITvia
+  | ITmorphism
 
   -- Backpack tokens
   | ITunit
@@ -817,6 +818,8 @@ reservedWordsFM = listToUFM $
          ( "then",           ITthen,          0 ),
          ( "type",           ITtype,          0 ),
          ( "where",          ITwhere,         0 ),
+
+         ( "morphism",       ITmorphism,      0 ),
 
          ( "forall",         ITforall NormalSyntax,
                                               xbit ExplicitForallBit .|.
