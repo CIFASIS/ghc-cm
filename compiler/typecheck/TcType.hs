@@ -69,7 +69,7 @@ module TcType (
   tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, tcRepSplitAppTy_maybe,
   tcRepGetNumAppTys,
   tcGetCastedTyVar_maybe, tcGetTyVar_maybe, tcGetTyVar, nextRole,
-  tcSplitSigmaTy, tcSplitNestedSigmaTys, tcDeepSplitSigmaTy_maybe,
+  tcSplitSigmaTy, tcSplitSigmaTyBndrs, tcSplitNestedSigmaTys, tcDeepSplitSigmaTy_maybe,
 
   ---------------------------------
   -- Predicates.
@@ -1506,6 +1506,12 @@ tcSplitSigmaTy :: Type -> ([TyVar], ThetaType, Type)
 tcSplitSigmaTy ty = case tcSplitForAllTys ty of
                         (tvs, rho) -> case tcSplitPhiTy rho of
                                         (theta, tau) -> (tvs, theta, tau)
+
+tcSplitSigmaTyBndrs :: Type -> ([TyVarBinder], ThetaType, Type)
+tcSplitSigmaTyBndrs ty = case tcSplitForAllTyVarBndrs ty of
+                             (tvbs, rho) -> case tcSplitPhiTy rho of
+                                              (theta, tau) -> (tvbs, theta, tau)
+
 
 -- | Split a sigma type into its parts, going underneath as many @ForAllTy@s
 -- as possible. For example, given this type synonym:
