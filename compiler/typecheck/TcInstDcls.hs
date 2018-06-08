@@ -10,7 +10,7 @@ TcInstDecls: Typechecking instance declarations
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module TcInstDcls ( tcInstDecls1, tcInstDeclsDeriv, tcInstDecls2 ) where
+module TcInstDcls ( tcInstDecls1, tcInstDeclsDeriv, tcInstDecls2, addClsInsts, mkBind ) where
 
 #include "HsVersions.h"
 
@@ -478,7 +478,8 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                                   , cid_datafam_insts = adts }))
   = setSrcSpan loc                      $
     addErrCtxt (instDeclCtxt1 poly_ty)  $
-    do  { (tyvars, theta, clas, inst_tys) <- tcHsClsInstType InstDeclCtxt poly_ty
+    do  { (tyvars, theta0, clas, inst_tys) <- tcHsClsInstType InstDeclCtxt poly_ty
+        ; theta <- expandTheta theta0
         ; let mini_env   = mkVarEnv (classTyVars clas `zip` inst_tys)
               mini_subst = mkTvSubst (mkInScopeSet (mkVarSet tyvars)) mini_env
               mb_info    = Just (clas, tyvars, mini_env)
@@ -1879,3 +1880,15 @@ badFamInstDecl tc_name
 notOpenFamily :: TyCon -> SDoc
 notOpenFamily tc
   = text "Illegal instance for closed family" <+> quotes (ppr tc)
+
+{-
+************************************************************************
+*                                                                      *
+\subsection{Binds for instances generated from morphisms}
+*                                                                      *
+************************************************************************
+-}
+
+-- Stub
+mkBind :: ClsInstMorph -> TcM (LHsBinds GhcTc)
+mkBind _ci = return emptyBag

@@ -35,7 +35,7 @@ import TcType
 import TcMType
 import TcValidity ( checkValidType )
 import TcUnify( tcSkolemise, unifyType )
-import Inst( topInstantiate )
+import Inst( topInstantiate, expandSig )
 import TcEnv( tcLookupId )
 import TcEvidence( HsWrapper, (<.>) )
 import Type( mkTyVarBinders )
@@ -186,13 +186,17 @@ tcTySig (L _ (IdSig _ id))
                     -- False: do not report redundant constraints
                     -- The user has no control over the signature!
              sig = completeSigFromId ctxt id
-       ; return [TcIdSig sig] }
+       ; sig' <- expandSig sig
+       ; traceTc "tcTySig IdSig, expanded" $ ppr (sig, sig')
+       ; return [TcIdSig sig'] }
 
 tcTySig (L loc (TypeSig _ names sig_ty))
   = setSrcSpan loc $
     do { sigs <- sequence [ tcUserTypeSig loc sig_ty (Just name)
                           | L _ name <- names ]
-       ; return (map TcIdSig sigs) }
+       ; sigs' <- mapM expandSig sigs
+       ; traceTc "tcTySig TypeSig, expanded" $ ppr (sigs, sigs')
+       ; return (map TcIdSig sigs') }
 
 tcTySig (L loc (PatSynSig _ names sig_ty))
   = setSrcSpan loc $
