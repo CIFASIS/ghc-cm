@@ -726,6 +726,7 @@ getLocalNonValBinders fixity_env
     new_assoc :: Bool -> LInstDecl GhcPs
               -> RnM ([AvailInfo], [(Name, [FieldLabel])])
     new_assoc _ (L _ (TyFamInstD {})) = return ([], [])
+    new_assoc _ (L _ (MorphD {})) = return ([],[])
       -- type instances don't bind new names
 
     new_assoc overload_ok (L _ (DataFamInstD _ d))

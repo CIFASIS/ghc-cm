@@ -57,7 +57,7 @@ import BasicTypes       ( pprRuleName )
 import FastString
 import SrcLoc
 import DynFlags
-import Util             ( debugIsOn, filterOut, lengthExceeds, partitionWith )
+import Util             ( debugIsOn, filterOut, lengthExceeds, partitionWith, mapFst )
 import HscTypes         ( HscEnv, hsc_dflags )
 import ListSetOps       ( findDupsEq, removeDups, equivClasses )
 import Digraph          ( SCC, flattenSCC, flattenSCCs, Node(..)
@@ -440,6 +440,10 @@ rnSrcInstDecl (ClsInstD { cid_inst = cid })
 
 rnSrcInstDecl (XInstDecl _) = panic "rnSrcInstDecl"
 
+rnSrcInstDecl (MorphD { morph_decl = mdcl })
+  = do { (mdcl', fvs) <- rnMorphDecl mdcl
+       ; return (MorphD { morph_decl = mdcl' }, fvs) }
+
 -- | Warn about non-canonical typeclass instance declarations
 --
 -- A "non-canonical" instance definition can occur for instances of a
@@ -641,6 +645,36 @@ checkCanonicalInstances cls poly_ty mbinds = do
     inst_decl_ctxt :: SDoc -> SDoc
     inst_decl_ctxt doc = hang (text "in the instance declaration for")
                          2 (quotes doc <> text ".")
+
+rnMorphDecl :: MorphDecl GhcPs -> RnM (MorphDecl GhcRn, FreeVars)
+rnMorphDecl m@(MorphDecl { morph_ant = ant
+                         , morph_con = con
+                         , morph_binds = mbinds })
+  = do { (ant', ant_fvs) <- rnLHsType HsTypeCtx ant
+       ; (con', con_fvs) <- rnLHsType HsTypeCtx con
+       ; _   <- case hsTyGetAppHead_maybe ant' of
+                  Nothing          -> addErrCtxt (morph_decl_ctxt (ppr m)) $ failWith (expectedClass (ppr ant'))
+                  Just (L _ _, []) -> return ()
+                  _                -> addErrCtxt (morph_decl_ctxt (ppr m)) $ failWith (expectedNoVars (ppr ant'))
+       ; cls <- case hsTyGetAppHead_maybe con' of
+                  Nothing             -> addErrCtxt (morph_decl_ctxt (ppr m)) $ failWith (expectedClass (ppr con'))
+                  Just (L _ cls', []) -> return cls'
+                  _                   -> addErrCtxt (morph_decl_ctxt (ppr m)) $ failWith (expectedNoVars (ppr con'))
+       ; (mbinds', _, meth_fvs) <- rnMethodBinds False cls [] mbinds []
+       ; let all_fvs = meth_fvs `plusFV` ant_fvs
+                                `plusFV` con_fvs
+       ; return (MorphDecl { morph_ant = ant'
+                           , morph_con = con'
+                           , morph_binds = mbinds' }
+                , all_fvs ) }
+
+       where expectedClass doc = text "Expected " <+> doc <+> text " to be a class."
+
+             expectedNoVars doc = text "Expected " <+> doc <+> text " to have no variables."
+
+             morph_decl_ctxt :: SDoc -> SDoc
+             morph_decl_ctxt doc = hang (text "In the morphism declaration for")
+                                  2 (quotes doc <> text ".")
 
 
 rnClsInstDecl :: ClsInstDecl GhcPs -> RnM (ClsInstDecl GhcRn, FreeVars)
@@ -1313,22 +1347,40 @@ data instances.  See Note [AFamDataCon: not promoting data family
 constructors] in TcEnv
 -}
 
+----------------------------------------------
+-- Auxiliary functions needed for calculating closure
+
+extract_morphdecls :: [LInstDecl GhcPs] -> ([LInstDecl GhcPs], [LInstDecl GhcPs])
+extract_morphdecls decls = extract_morphdecls1 [] [] decls where
+
+    extract_morphdecls1 morphs insts [] = (reverse morphs, reverse insts)
+    extract_morphdecls1 morphs insts (d:decls) =
+        case d of
+           (L _ (MorphD {})) -> extract_morphdecls1 (d:morphs) insts decls
+           _                 -> extract_morphdecls1 morphs (d:insts) decls
+
+----------------------------------------------
 
 rnTyClDecls :: [TyClGroup GhcPs]
             -> RnM ([TyClGroup GhcRn], FreeVars)
 -- Rename the declarations and do dependency analysis on them
 rnTyClDecls tycl_ds
-  = do { -- Rename the type/class, instance, and role declaraations
+  = do { -- Rename the type/class, instance, and role declarations
          tycls_w_fvs <- mapM (wrapLocFstM rnTyClDecl)
                              (tyClGroupTyClDecls tycl_ds)
        ; let tc_names = mkNameSet (map (tcdName . unLoc . fst) tycls_w_fvs)
 
-       ; instds_w_fvs <- mapM (wrapLocFstM rnSrcInstDecl) (tyClGroupInstDecls tycl_ds)
+       -- Getting morphisms of this module
+       ; let (morph_decls, inst_decls) = extract_morphdecls (tyClGroupInstDecls tycl_ds)
+       ; morphs_w_fvs <- mapM (wrapLocFstM rnSrcInstDecl) morph_decls
+
+       ; instds_w_fvs <- mapM (wrapLocFstM rnSrcInstDecl) inst_decls
        ; role_annots  <- rnRoleAnnots tc_names (tyClGroupRoleDecls tycl_ds)
 
        -- Do SCC analysis on the type/class decls
        ; rdr_env <- getGlobalRdrEnv
-       ; let tycl_sccs = depAnalTyClDecls rdr_env tycls_w_fvs
+       ; deps <- combine tycls_w_fvs morphs_w_fvs
+       ; let tycl_sccs = depAnalTyClDecls rdr_env deps
              role_annot_env = mkRoleAnnotEnv role_annots
 
              inst_ds_map = mkInstDeclFreeVarsMap rdr_env tc_names instds_w_fvs
@@ -1357,37 +1409,69 @@ rnTyClDecls tycl_ds
        ; traceRn "rnTycl dependency analysis made groups" (ppr all_groups)
        ; return (all_groups, all_fvs) }
   where
+    combine :: [(LTyClDecl GhcRn, FreeVars)] ->
+               [(LInstDecl GhcRn, FreeVars)] ->
+               RnM [(Either (LTyClDecl GhcRn) (LNamedInstDecl GhcRn), FreeVars)]
+    combine ds ms =
+        do ms <- mapM (\(id, fvs) -> do n <- freshName
+                                        return ((id, n), fvs)) ms
+           ds <- mapM (\(dd, fvs) -> do e <- extraFvs dd ms
+                                        return (dd, extendNameSetList fvs e)) ds
+           return $ mapFst Left ds ++ mapFst Right ms
+        where
+
+        freshName :: RnM Name
+        freshName = newName (mkVarOcc "morph") -- TODO: Better name
+
+        extraFvs :: LTyClDecl GhcRn -> [(LNamedInstDecl GhcRn, FreeVars)] -> RnM [Name]
+        extraFvs (L _ (ClassDecl { tcdLName = L _ nm })) is =
+            do flip concatMapM is (\((id, nm_morph), _) ->
+                    case unLoc id of
+                      MorphD (MorphDecl { morph_ant = ant }) ->
+                        let Just (L _ ant_nm, _) = hsTyGetAppHead_maybe ant in
+                        if ant_nm == nm
+                        then return [nm_morph]
+                        else return []
+                      _ ->
+                        return [])
+
+        extraFvs _ _ = return []
+
     mk_group :: (InstDeclFreeVarsMap, RoleAnnotEnv)
-             -> SCC (LTyClDecl GhcRn)
+             -> SCC (Either (LTyClDecl GhcRn) (LNamedInstDecl GhcRn))
              -> ( (InstDeclFreeVarsMap, RoleAnnotEnv)
                 , TyClGroup GhcRn )
     mk_group (inst_map, role_env) scc
       = ((inst_map', role_env'), group)
       where
-        tycl_ds              = flattenSCC scc
+        (tycl_ds, morph_ds)  = partitionWith id $ flattenSCC scc
         bndrs                = map (tcdName . unLoc) tycl_ds
         (inst_ds, inst_map') = getInsts      bndrs inst_map
         (roles,   role_env') = getRoleAnnots bndrs role_env
         group = TyClGroup { group_ext    = noExt
                           , group_tyclds = tycl_ds
                           , group_roles  = roles
-                          , group_instds = inst_ds }
+                          , group_instds = map fst morph_ds ++ inst_ds }
 
+type LNamedInstDecl pass = (LInstDecl pass, Name)
 
 depAnalTyClDecls :: GlobalRdrEnv
-                 -> [(LTyClDecl GhcRn, FreeVars)]
-                 -> [SCC (LTyClDecl GhcRn)]
+                 -> [(Either (LTyClDecl GhcRn) (LNamedInstDecl GhcRn), FreeVars)]
+                 -> [SCC (Either (LTyClDecl GhcRn) (LNamedInstDecl GhcRn))]
 -- See Note [Dependency analysis of type, class, and instance decls]
 depAnalTyClDecls rdr_env ds_w_fvs
   = stronglyConnCompFromEdgedVerticesUniq edges
   where
-    edges :: [ Node Name (LTyClDecl GhcRn) ]
-    edges = [ DigraphNode d (tcdName (unLoc d)) (map (getParent rdr_env) (nonDetEltsUniqSet fvs))
-            | (d, fvs) <- ds_w_fvs ]
+    edges :: [ Node Name (Either (LTyClDecl GhcRn) (LNamedInstDecl GhcRn)) ]
+    edges = [ DigraphNode d (nameOf d) (map (getParent rdr_env) (nonDetEltsUniqSet fvs))
+             | (d, fvs) <- ds_w_fvs ]
             -- It's OK to use nonDetEltsUFM here as
             -- stronglyConnCompFromEdgedVertices is still deterministic
             -- even if the edges are in nondeterministic order as explained
             -- in Note [Deterministic SCC] in Digraph.
+
+    nameOf (Left x) = tcdName (unLoc x)
+    nameOf (Right (_, n)) = n
 
 toParents :: GlobalRdrEnv -> NameSet -> NameSet
 toParents rdr_env ns
