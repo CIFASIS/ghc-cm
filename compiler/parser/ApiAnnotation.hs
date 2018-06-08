@@ -247,6 +247,7 @@ data AnnKeywordId
     | AnnMdo
     | AnnMinus -- ^ '-'
     | AnnModule
+    | AnnMorphism  -- new keyword 'morphism'
     | AnnNewtype
     | AnnName -- ^ where a name loses its location in the AST, this carries it
     | AnnOf

@@ -1182,6 +1182,7 @@ hsLInstDeclBinders (L _ (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts =
 hsLInstDeclBinders (L _ (DataFamInstD { dfid_inst = fi }))
   = hsDataFamInstBinders fi
 hsLInstDeclBinders (L _ (TyFamInstD {})) = mempty
+hsLInstDeclBinders (L _ (MorphD {})) = mempty
 
 -------------------
 -- the SrcLoc returned are for the whole declarations, not just the names

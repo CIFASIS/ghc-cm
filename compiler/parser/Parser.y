@@ -485,6 +485,8 @@ are the most common patterns, rewritten as regular expressions for clarity:
  'stock'        { L _ ITstock }    -- for DerivingStrategies extension
  'anyclass'     { L _ ITanyclass } -- for DerivingStrategies extension
 
+ 'morphism'     { L _ ITmorphism }
+
  'unit'         { L _ ITunit }
  'signature'    { L _ ITsignature }
  'dependency'   { L _ ITdependency }
@@ -1026,6 +1028,7 @@ topdecl :: { LHsDecl GhcPs }
         : cl_decl                               { sL1 $1 (TyClD (unLoc $1)) }
         | ty_decl                               { sL1 $1 (TyClD (unLoc $1)) }
         | inst_decl                             { sL1 $1 (InstD (unLoc $1)) }
+        | morph_decl                            { sL1 $1 (InstD (unLoc $1)) }
         | stand_alone_deriving                  { sLL $1 $> (DerivD (unLoc $1)) }
         | role_annot                            { sL1 $1 (RoleAnnotD (unLoc $1)) }
         | 'default' '(' comma_types0 ')'    {% ams (sLL $1 $> (DefD (DefaultDecl $3)))
@@ -1132,6 +1135,16 @@ ty_decl :: { LTyClDecl GhcPs }
                 {% amms (mkFamDecl (comb3 $1 $2 $4) DataFamily $3
                                    (snd $ unLoc $4) Nothing)
                         (mj AnnData $1:mj AnnFamily $2:(fst $ unLoc $4)) }
+
+morph_decl :: {LInstDecl GhcPs}
+        : 'class' 'morphism' btype '->' btype where_inst
+       {% do { (binds, _, _, _, _, _) <- cvBindsAndSigs (snd $ unLoc $6)
+             -- We ignore everything but the binds. TODO: don't!
+             ; let morph = MorphDecl { morph_ant   = $3
+                                     , morph_con   = $5
+                                     , morph_binds = binds }
+             ; ams (L (comb2 $1 $6) (MorphD { morph_decl = morph }))
+                   (mj AnnClass $1 : mj AnnMorphism $2 : mu AnnRarrow $4 : (fst $ unLoc $6))} }
 
 inst_decl :: { LInstDecl GhcPs }
         : 'instance' overlap_pragma inst_type where_inst

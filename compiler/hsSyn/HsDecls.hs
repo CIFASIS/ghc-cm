@@ -36,6 +36,7 @@ module HsDecls (
 
   -- ** Instance declarations
   InstDecl(..), LInstDecl, FamilyInfo(..),
+  MorphDecl(..), LMorphDecl,
   TyFamInstDecl(..), LTyFamInstDecl, instDeclDataFamInsts,
   DataFamInstDecl(..), LDataFamInstDecl, pprDataFamInstFlavour, pprFamInstLHS,
   FamInstEqn, LFamInstEqn, FamEqn(..),
@@ -1482,6 +1483,18 @@ data ClsInstDecl pass
 
     -- For details on above see note [Api annotations] in ApiAnnotation
 
+----------------- Morphism --------------------
+-- | Located Morphism Declaration
+type LMorphDecl pass = Located (MorphDecl pass)
+
+-- | Morphism Declaration
+data MorphDecl pass
+  = MorphDecl
+     { morph_ant         :: LHsType pass
+     , morph_con         :: LHsType pass
+     , morph_binds       :: LHsBinds pass
+     }
+
 ----------------- Instances of all kinds -------------
 
 -- | Located Instance Declaration
@@ -1495,6 +1508,8 @@ data InstDecl pass  -- Both class and family instances
       { dfid_inst :: DataFamInstDecl pass }
   | TyFamInstD              -- type family instance
       { tfid_inst :: TyFamInstDecl pass }
+  | MorphD                 -- morphism declaration
+      { morph_decl :: MorphDecl pass}
 
 instance (p ~ GhcPass pass, OutputableBndrId p)
        => Outputable (TyFamInstDecl p) where
@@ -1594,6 +1609,24 @@ instance (p ~ GhcPass pass, OutputableBndrId p)
         top_matter = text "instance" <+> ppOverlapPragma mbOverlap
                                              <+> ppr inst_ty
 
+instance (p ~ GhcPass pass, OutputableBndrId p)
+       => Outputable (MorphDecl p) where
+  ppr (MorphDecl { morph_ant = ant
+                 , morph_con = con
+                 , morph_binds = mbinds })
+    | isEmptyBag mbinds
+    = top_matter
+
+    | otherwise
+    = top_matter
+   <+> text "where"
+   <+> pprLHsBinds mbinds
+      where
+        top_matter = text "class morphism"
+                     <+> ppr ant
+                     <+> text "->"
+                     <+> ppr con
+
 ppDerivStrategy :: Maybe (Located DerivStrategy) -> SDoc
 ppDerivStrategy mb =
   case mb of
@@ -1618,6 +1651,7 @@ instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (InstDecl p) where
     ppr (ClsInstD     { cid_inst  = decl }) = ppr decl
     ppr (TyFamInstD   { tfid_inst = decl }) = ppr decl
     ppr (DataFamInstD { dfid_inst = decl }) = ppr decl
+    ppr (MorphD       { morph_decl = decl }) = ppr decl
 
 -- Extract the declarations of associated data types from an instance
 
@@ -1629,6 +1663,7 @@ instDeclDataFamInsts inst_decls
       = map unLoc fam_insts
     do_one (L _ (DataFamInstD { dfid_inst = fam_inst }))      = [fam_inst]
     do_one (L _ (TyFamInstD {}))                              = []
+    do_one (L _ (MorphD {}))                                  = []
 
 {-
 ************************************************************************
