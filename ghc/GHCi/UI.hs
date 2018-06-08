@@ -2935,14 +2935,15 @@ getLoadedModules = do
 showBindings :: GHCi ()
 showBindings = do
     bindings <- GHC.getBindings
-    (insts, finsts) <- GHC.getInsts
+    (insts, finsts, morphs) <- GHC.getInsts
     let idocs  = map GHC.pprInstanceHdr insts
         fidocs = map GHC.pprFamInst finsts
+        mdocs  = map GHC.pprMorphHdr morphs
         binds = filter (not . isDerivedOccName . getOccName) bindings -- #12525
         -- See Note [Filter bindings]
     docs <- mapM makeDoc (reverse binds)
                   -- reverse so the new ones come last
-    mapM_ printForUserPartWay (docs ++ idocs ++ fidocs)
+    mapM_ printForUserPartWay (docs ++ idocs ++ fidocs ++ mdocs)
   where
     makeDoc (AnId i) = pprTypeAndContents i
     makeDoc tt = do

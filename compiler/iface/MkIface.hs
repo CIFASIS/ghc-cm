@@ -235,6 +235,7 @@ mkIface_ hsc_env maybe_old_fingerprint
          hpc_info pkg_trust_req safe_mode usages
          doc_hdr decl_docs arg_docs
          ModDetails{  md_insts     = insts,
+                      md_morphs    = morphs,
                       md_fam_insts = fam_insts,
                       md_rules     = rules,
                       md_anns      = anns,
@@ -271,6 +272,7 @@ mkIface_ hsc_env maybe_old_fingerprint
         warns       = src_warns
         iface_rules = map coreRuleToIfaceRule rules
         iface_insts = map instanceToIfaceInst $ fixSafeInstances safe_mode insts
+        iface_morphs = map morphToIfaceMorph morphs
         iface_fam_insts = map famInstToIfaceFamInst fam_insts
         trust_info  = setSafeMode safe_mode
         annotations = map mkIfaceAnnotation anns
@@ -291,6 +293,7 @@ mkIface_ hsc_env maybe_old_fingerprint
               -- Sort these lexicographically, so that
               -- the result is stable across compilations
               mi_insts       = sortBy cmp_inst     iface_insts,
+              mi_morphs      = sortBy cmp_morph    iface_morphs,
               mi_fam_insts   = sortBy cmp_fam_inst iface_fam_insts,
               mi_rules       = sortBy cmp_rule     iface_rules,
 
@@ -347,6 +350,7 @@ mkIface_ hsc_env maybe_old_fingerprint
      -- Compare these lexicographically by OccName, *not* by unique,
      -- because the latter is not stable across compilations:
      cmp_inst     = comparing (nameOccName . ifDFun)
+     cmp_morph    = comparing (nameOccName . ifMDFun)
      cmp_fam_inst = comparing (nameOccName . ifFamInstTcName)
 
      dflags = hsc_dflags hsc_env
@@ -1974,6 +1978,11 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag
 
     dfun_name = idName dfun_id
 
+
+--------------------------
+morphToIfaceMorph :: Morph -> IfaceMorph
+morphToIfaceMorph (Morph { mDFun = dfun })
+  = IfaceMorph { ifMDFun = idName dfun }
 
 --------------------------
 famInstToIfaceFamInst :: FamInst -> IfaceFamInst

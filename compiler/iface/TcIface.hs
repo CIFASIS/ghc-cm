@@ -14,7 +14,7 @@ module TcIface (
         importDecl, checkWiredInTyCon, tcHiBootIface, typecheckIface,
         typecheckIfacesForMerging,
         typecheckIfaceForInstantiate,
-        tcIfaceDecl, tcIfaceInst, tcIfaceFamInst, tcIfaceRules,
+        tcIfaceDecl, tcIfaceInst, tcIfaceMorph, tcIfaceFamInst, tcIfaceRules,
         tcIfaceAnnotations, tcIfaceCompleteSigs,
         tcIfaceExpr,    -- Desired by HERMIT (Trac #7683)
         tcIfaceGlobal
@@ -167,6 +167,7 @@ typecheckIface iface
 
                 -- Now do those rules, instances and annotations
         ; insts     <- mapM tcIfaceInst (mi_insts iface)
+        ; morphs    <- mapM tcIfaceMorph (mi_morphs iface)
         ; fam_insts <- mapM tcIfaceFamInst (mi_fam_insts iface)
         ; rules     <- tcIfaceRules ignore_prags (mi_rules iface)
         ; anns      <- tcIfaceAnnotations (mi_anns iface)
@@ -185,6 +186,7 @@ typecheckIface iface
                          text "Type envt:" <+> ppr (map fst names_w_things)])
         ; return $ ModDetails { md_types     = type_env
                               , md_insts     = insts
+                              , md_morphs    = morphs
                               , md_fam_insts = fam_insts
                               , md_rules     = rules
                               , md_anns      = anns
@@ -384,6 +386,7 @@ typecheckIfacesForMerging mod ifaces tc_env_var =
         -- in 'IfaceInst'
         setImplicitEnvM type_env $ do
         insts     <- mapM tcIfaceInst (mi_insts iface)
+        morphs    <- mapM tcIfaceMorph (mi_morphs iface)
         fam_insts <- mapM tcIfaceFamInst (mi_fam_insts iface)
         rules     <- tcIfaceRules ignore_prags (mi_rules iface)
         anns      <- tcIfaceAnnotations (mi_anns iface)
@@ -391,6 +394,7 @@ typecheckIfacesForMerging mod ifaces tc_env_var =
         complete_sigs <- tcIfaceCompleteSigs (mi_complete_sigs iface)
         return $ ModDetails { md_types     = type_env
                             , md_insts     = insts
+                            , md_morphs    = morphs
                             , md_fam_insts = fam_insts
                             , md_rules     = rules
                             , md_anns      = anns
@@ -423,6 +427,7 @@ typecheckIfaceForInstantiate nsubst iface =
     -- See Note [rnIfaceNeverExported]
     setImplicitEnvM type_env $ do
     insts     <- mapM tcIfaceInst (mi_insts iface)
+    morphs    <- mapM tcIfaceMorph (mi_morphs iface)
     fam_insts <- mapM tcIfaceFamInst (mi_fam_insts iface)
     rules     <- tcIfaceRules ignore_prags (mi_rules iface)
     anns      <- tcIfaceAnnotations (mi_anns iface)
@@ -430,6 +435,7 @@ typecheckIfaceForInstantiate nsubst iface =
     complete_sigs <- tcIfaceCompleteSigs (mi_complete_sigs iface)
     return $ ModDetails { md_types     = type_env
                         , md_insts     = insts
+                        , md_morphs    = morphs
                         , md_fam_insts = fam_insts
                         , md_rules     = rules
                         , md_anns      = anns
@@ -1021,6 +1027,17 @@ tcIfaceInst (IfaceClsInst { ifDFun = dfun_name, ifOFlag = oflag
                     fmap tyThingId (tcIfaceImplicit dfun_name)
        ; let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
        ; return (mkImportedInstance cls mb_tcs' dfun_name dfun oflag orph) }
+
+tcIfaceMorph :: IfaceMorph -> IfL Morph
+tcIfaceMorph (IfaceMorph { ifMDFun = dfun_name })
+  = do { dfun <- forkM (text "Morph dict fun" <+> ppr dfun_name) $
+                    fmap tyThingId (tcIfaceImplicit dfun_name)
+       ; let (_, _:ct:_, con, _) = tcSplitDFunTy (idType dfun)
+       ; let (ant, _) = tcSplitDFunHead ct
+
+       ; return $ Morph { mAnt  = ant
+                        , mCon  = con
+                        , mDFun = dfun } }
 
 tcIfaceFamInst :: IfaceFamInst -> IfL FamInst
 tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcs

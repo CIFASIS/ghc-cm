@@ -57,7 +57,7 @@ import PrelNames
 import Outputable
 import FastString
 import Util
-import InstEnv     ( instanceDFunId )
+import InstEnv     ( instanceDFunId, mDFun )
 import OptCoercion ( checkAxInstCo )
 import UniqSupply
 import CoreArity ( typeArity )
@@ -379,9 +379,9 @@ interactiveInScope hsc_env
   where
     -- C.f. TcRnDriver.setInteractiveContext, Desugar.deSugarExpr
     ictxt                   = hsc_IC hsc_env
-    (cls_insts, _fam_insts) = ic_instances ictxt
+    (cls_insts, _fam_insts, morphs) = ic_instances ictxt
     te1    = mkTypeEnvWithImplicits (ic_tythings ictxt)
-    te     = extendTypeEnvWithIds te1 (map instanceDFunId cls_insts)
+    te     = extendTypeEnvWithIds te1 (map instanceDFunId cls_insts ++ map mDFun morphs)
     ids    = typeEnvIds te
     tyvars = tyCoVarsOfTypesList $ map idType ids
               -- Why the type variables?  How can the top level envt have free tyvars?

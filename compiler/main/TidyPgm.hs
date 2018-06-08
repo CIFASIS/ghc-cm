@@ -140,6 +140,7 @@ mkBootModDetailsTc hsc_env
                   tcg_tcs       = tcs,
                   tcg_patsyns   = pat_syns,
                   tcg_insts     = insts,
+                  tcg_morphs    = morphs,
                   tcg_fam_insts = fam_insts,
                   tcg_mod       = this_mod
                 }
@@ -149,6 +150,7 @@ mkBootModDetailsTc hsc_env
                    (text "CoreTidy"<+>brackets (ppr this_mod))
                    (const ()) $
     do  { let { insts'     = map (tidyClsInstDFun globaliseAndTidyId) insts
+              ; morphs'    = map (tidyMorphDFun globaliseAndTidyId) morphs
               ; pat_syns'  = map (tidyPatSynIds   globaliseAndTidyId) pat_syns
               ; type_env1  = mkBootTypeEnv (availsToNameSet exports)
                                            (typeEnvIds type_env) tcs fam_insts
@@ -158,6 +160,7 @@ mkBootModDetailsTc hsc_env
               }
         ; return (ModDetails { md_types     = type_env'
                              , md_insts     = insts'
+                             , md_morphs    = morphs'
                              , md_fam_insts = fam_insts
                              , md_rules     = []
                              , md_anns      = []
@@ -315,6 +318,7 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                               , mg_rdr_env   = rdr_env
                               , mg_tcs       = tcs
                               , mg_insts     = cls_insts
+                              , mg_morphs    = morphs
                               , mg_fam_insts = fam_insts
                               , mg_binds     = binds
                               , mg_patsyns   = patsyns
@@ -361,6 +365,8 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                 -- tidy_type_env, replete with IdInfo.  Its name will be unchanged since
                 -- it was born, but we want Global, IdInfo-rich (or not) DFunId in the
                 -- tidy_cls_insts.  Similarly the Ids inside a PatSyn.
+                --
+              ; tidy_morphs    = map (tidyMorphDFun globaliseAndTidyId) morphs
 
               ; tidy_rules = tidyRules tidy_env trimmed_rules
                 -- You might worry that the tidy_env contains IdInfo-rich stuff
@@ -434,6 +440,7 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                    ModDetails { md_types     = tidy_type_env,
                                 md_rules     = tidy_rules,
                                 md_insts     = tidy_cls_insts,
+                                md_morphs    = tidy_morphs,
                                 md_fam_insts = fam_insts,
                                 md_exports   = exports,
                                 md_anns      = anns,      -- are already tidy

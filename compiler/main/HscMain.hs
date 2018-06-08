@@ -1645,8 +1645,9 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
                  cg_modBreaks = mod_breaks } = tidy_cg
 
         !ModDetails { md_insts     = cls_insts
-                    , md_fam_insts = fam_insts } = mod_details
-            -- Get the *tidied* cls_insts and fam_insts
+                    , md_fam_insts = fam_insts
+                    , md_morphs    = morphs } = mod_details
+            -- Get the *tidied* cls_insts, fam_insts and morphisms
 
         data_tycons = filter isDataTyCon tycons
 
@@ -1683,7 +1684,7 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
         -- See Note [Fixity declarations in GHCi]
         fix_env      = tcg_fix_env tc_gblenv
         new_ictxt    = extendInteractiveContext ictxt new_tythings cls_insts
-                                                fam_insts defaults fix_env
+                                                fam_insts morphs defaults fix_env
     return (new_tythings, new_ictxt)
 
 -- | Load the given static-pointer table entries into the interpreter.

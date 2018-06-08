@@ -104,6 +104,7 @@ rnModIface hsc_env insts nsubst iface = do
         exports <- mapM rnAvailInfo (mi_exports iface)
         decls <- mapM rnIfaceDecl' (mi_decls iface)
         insts <- mapM rnIfaceClsInst (mi_insts iface)
+        morphs <- mapM rnIfaceMorph (mi_morphs iface)
         fams <- mapM rnIfaceFamInst (mi_fam_insts iface)
         deps <- rnDependencies (mi_deps iface)
         -- TODO:
@@ -111,6 +112,7 @@ rnModIface hsc_env insts nsubst iface = do
         return iface { mi_module = mod
                      , mi_sig_of = sig_of
                      , mi_insts = insts
+                     , mi_morphs = morphs
                      , mi_fam_insts = fams
                      , mi_exports = exports
                      , mi_decls = decls
@@ -411,6 +413,11 @@ rnIfaceClsInst cls_inst = do
                     , ifInstTys = tys
                     , ifDFun = dfun
                     }
+
+rnIfaceMorph :: Rename IfaceMorph
+rnIfaceMorph morph = do
+    dfun <- rnIfaceNeverExported (ifMDFun morph)
+    return morph { ifMDFun = dfun }
 
 rnMaybeIfaceTyCon :: Rename (Maybe IfaceTyCon)
 rnMaybeIfaceTyCon Nothing = return Nothing

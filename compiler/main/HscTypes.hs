@@ -45,7 +45,7 @@ module HscTypes (
         lookupHpt, eltsHpt, filterHpt, allHpt, mapHpt, delFromHpt,
         addToHpt, addListToHpt, lookupHptDirectly, listToHpt,
         hptCompleteSigs,
-        hptInstances, hptRules, pprHPT,
+        hptInstances, hptMorphs, hptRules, pprHPT,
 
         -- * State relating to known packages
         ExternalPackageState(..), EpsStats(..), addEpsInStats,
@@ -156,7 +156,7 @@ import HsSyn
 import RdrName
 import Avail
 import Module
-import InstEnv          ( InstEnv, ClsInst, identicalClsInstHead )
+import InstEnv          ( InstEnv, ClsInst, Morph, identicalClsInstHead )
 import FamInstEnv
 import CoreSyn          ( CoreProgram, RuleBase, CoreRule )
 import Name
@@ -659,6 +659,14 @@ hptInstances hsc_env want_this_module
                 return (md_insts details, md_fam_insts details)
     in (concat insts, concat famInsts)
 
+hptMorphs :: HscEnv -> (ModuleName -> Bool) -> [Morph]
+hptMorphs hsc_env want_this_module
+  = let morphs = flip hptAllThings hsc_env $ \mod_info -> do
+                guard (want_this_module (moduleName (mi_module (hm_iface mod_info))))
+                let details = hm_details mod_info
+                return (md_morphs details)
+    in concat morphs
+
 -- | Get rules from modules "below" this one (in the dependency sense)
 hptRules :: HscEnv -> [(ModuleName, IsBootInterface)] -> [CoreRule]
 hptRules = hptSomeThingsBelowUs (md_rules . hm_details) False
@@ -921,6 +929,7 @@ data ModIface
 
                 -- Instance declarations and rules
         mi_insts       :: [IfaceClsInst],     -- ^ Sorted class instance
+        mi_morphs      :: [IfaceMorph],       -- ^ Sorted class morphisms
         mi_fam_insts   :: [IfaceFamInst],  -- ^ Sorted family instances
         mi_rules       :: [IfaceRule],     -- ^ Sorted rules
         mi_orphan_hash :: !Fingerprint,    -- ^ Hash for orphan rules, class and family
@@ -1034,6 +1043,7 @@ instance Binary ModIface where
                  mi_anns      = anns,
                  mi_decls     = decls,
                  mi_insts     = insts,
+                 mi_morphs    = morphs,
                  mi_fam_insts = fam_insts,
                  mi_rules     = rules,
                  mi_orphan_hash = orphan_hash,
@@ -1065,6 +1075,7 @@ instance Binary ModIface where
         lazyPut bh anns
         put_ bh decls
         put_ bh insts
+        put_ bh morphs
         put_ bh fam_insts
         lazyPut bh rules
         put_ bh orphan_hash
@@ -1098,6 +1109,7 @@ instance Binary ModIface where
         anns        <- {-# SCC "bin_anns" #-} lazyGet bh
         decls       <- {-# SCC "bin_tycldecls" #-} get bh
         insts       <- {-# SCC "bin_insts" #-} get bh
+        morphs      <- get bh -- TODO: I removed the SCC, what is it?
         fam_insts   <- {-# SCC "bin_fam_insts" #-} get bh
         rules       <- {-# SCC "bin_rules" #-} lazyGet bh
         orphan_hash <- get bh
@@ -1131,6 +1143,7 @@ instance Binary ModIface where
                  mi_decls       = decls,
                  mi_globals     = Nothing,
                  mi_insts       = insts,
+                 mi_morphs      = morphs,
                  mi_fam_insts   = fam_insts,
                  mi_rules       = rules,
                  mi_orphan_hash = orphan_hash,
@@ -1172,6 +1185,7 @@ emptyModIface mod
                mi_warns       = NoWarnings,
                mi_anns        = [],
                mi_insts       = [],
+               mi_morphs      = [],
                mi_fam_insts   = [],
                mi_rules       = [],
                mi_decls       = [],
@@ -1214,6 +1228,7 @@ data ModDetails
         md_types     :: !TypeEnv,       -- ^ Local type environment for this particular module
                                         -- Includes Ids, TyCons, PatSyns
         md_insts     :: ![ClsInst],     -- ^ 'DFunId's for the instances in this module
+        md_morphs    :: ![Morph],       -- ^ 'DFunId's for the class morphisms in this module
         md_fam_insts :: ![FamInst],
         md_rules     :: ![CoreRule],    -- ^ Domain may include 'Id's from other modules
         md_anns      :: ![Annotation],  -- ^ Annotations present in this module: currently
@@ -1228,6 +1243,7 @@ emptyModDetails
   = ModDetails { md_types     = emptyTypeEnv,
                  md_exports   = [],
                  md_insts     = [],
+                 md_morphs    = [],
                  md_rules     = [],
                  md_fam_insts = [],
                  md_anns      = [],
@@ -1283,6 +1299,7 @@ data ModGuts
         mg_tcs       :: ![TyCon],        -- ^ TyCons declared in this module
                                          -- (includes TyCons for classes)
         mg_insts     :: ![ClsInst],      -- ^ Class instances declared in this module
+        mg_morphs    :: ![Morph],        -- ^ Class morphisms declared in this module
         mg_fam_insts :: ![FamInst],
                                          -- ^ Family instances declared in this module
         mg_patsyns   :: ![PatSyn],       -- ^ Pattern synonyms declared in this module
@@ -1306,6 +1323,7 @@ data ModGuts
         mg_inst_env     :: InstEnv,             -- ^ Class instance environment for
                                                 -- /home-package/ modules (including this
                                                 -- one); c.f. 'tcg_inst_env'
+        mg_morphs_env   :: ![Morph],
         mg_fam_inst_env :: FamInstEnv,          -- ^ Type-family instance environment for
                                                 -- /home-package/ modules (including this
                                                 -- one); c.f. 'tcg_fam_inst_env'
@@ -1568,7 +1586,7 @@ data InteractiveContext
              -- It contains everything in scope at the command line,
              -- including everything in ic_tythings
 
-         ic_instances  :: ([ClsInst], [FamInst]),
+         ic_instances  :: ([ClsInst], [FamInst], [Morph]),
              -- ^ All instances and family instances created during
              -- this session.  These are grabbed en masse after each
              -- update to be sure that proper overlapping is retained.
@@ -1616,7 +1634,7 @@ emptyInteractiveContext dflags
        ic_rn_gbl_env = emptyGlobalRdrEnv,
        ic_mod_index  = 1,
        ic_tythings   = [],
-       ic_instances  = ([],[]),
+       ic_instances  = ([],[],[]),
        ic_fix_env    = emptyNameEnv,
        ic_monad      = ioTyConName,  -- IO monad by default
        ic_int_print  = printName,    -- System.IO.print by default
@@ -1646,18 +1664,19 @@ icPrintUnqual dflags InteractiveContext{ ic_rn_gbl_env = grenv } =
 -- not clear whether removing them is even the appropriate behavior.
 extendInteractiveContext :: InteractiveContext
                          -> [TyThing]
-                         -> [ClsInst] -> [FamInst]
+                         -> [ClsInst] -> [FamInst] -> [Morph]
                          -> Maybe [Type]
                          -> FixityEnv
                          -> InteractiveContext
-extendInteractiveContext ictxt new_tythings new_cls_insts new_fam_insts defaults fix_env
+extendInteractiveContext ictxt new_tythings new_cls_insts new_fam_insts new_morphs defaults fix_env
   = ictxt { ic_mod_index  = ic_mod_index ictxt + 1
                             -- Always bump this; even instances should create
                             -- a new mod_index (Trac #9426)
           , ic_tythings   = new_tythings ++ old_tythings
           , ic_rn_gbl_env = ic_rn_gbl_env ictxt `icExtendGblRdrEnv` new_tythings
           , ic_instances  = ( new_cls_insts ++ old_cls_insts
-                            , new_fam_insts ++ fam_insts )
+                            , new_fam_insts ++ fam_insts
+                            , new_morphs    ++ morphs )
                             -- we don't shadow old family instances (#7102),
                             -- so don't need to remove them here
           , ic_default    = defaults
@@ -1669,7 +1688,7 @@ extendInteractiveContext ictxt new_tythings new_cls_insts new_fam_insts defaults
 
     -- Discard old instances that have been fully overridden
     -- See Note [Override identical instances in GHCi]
-    (cls_insts, fam_insts) = ic_instances ictxt
+    (cls_insts, fam_insts, morphs) = ic_instances ictxt
     old_cls_insts = filterOut (\i -> any (identicalClsInstHead i) new_cls_insts) cls_insts
 
 extendInteractiveContextWithIds :: InteractiveContext -> [Id] -> InteractiveContext
@@ -2525,6 +2544,7 @@ instance Binary Usage where
 type PackageTypeEnv          = TypeEnv
 type PackageRuleBase         = RuleBase
 type PackageInstEnv          = InstEnv
+type PackageMorphEnv         = [Morph]
 type PackageFamInstEnv       = FamInstEnv
 type PackageAnnEnv           = AnnEnv
 type PackageCompleteMatchMap = CompleteMatchMap
@@ -2582,6 +2602,8 @@ data ExternalPackageState
                 -- the mapping is external-package modules
 
         eps_inst_env     :: !PackageInstEnv,   -- ^ The total 'InstEnv' accumulated
+                                               -- from all the external-package modules
+        eps_morphs_env   :: !PackageMorphEnv,  -- ^ The total 'MorphEnv' accumulated
                                                -- from all the external-package modules
         eps_fam_inst_env :: !PackageFamInstEnv,-- ^ The total 'FamInstEnv' accumulated
                                                -- from all the external-package modules

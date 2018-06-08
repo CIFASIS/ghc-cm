@@ -35,7 +35,7 @@ module LoadIface (
 
 import GhcPrelude
 
-import {-# SOURCE #-}   TcIface( tcIfaceDecl, tcIfaceRules, tcIfaceInst,
+import {-# SOURCE #-}   TcIface( tcIfaceDecl, tcIfaceRules, tcIfaceInst, tcIfaceMorph,
                                  tcIfaceFamInst,
                                  tcIfaceAnnotations, tcIfaceCompleteSigs )
 
@@ -466,6 +466,7 @@ loadInterface doc_str mod from
         ; ignore_prags      <- goptM Opt_IgnoreInterfacePragmas
         ; new_eps_decls     <- loadDecls ignore_prags (mi_decls iface)
         ; new_eps_insts     <- mapM tcIfaceInst (mi_insts iface)
+        ; new_eps_morphs    <- mapM tcIfaceMorph (mi_morphs iface)
         ; new_eps_fam_insts <- mapM tcIfaceFamInst (mi_fam_insts iface)
         ; new_eps_rules     <- tcIfaceRules ignore_prags (mi_rules iface)
         ; new_eps_anns      <- tcIfaceAnnotations (mi_anns iface)
@@ -474,6 +475,7 @@ loadInterface doc_str mod from
         ; let { final_iface = iface {
                                 mi_decls     = panic "No mi_decls in PIT",
                                 mi_insts     = panic "No mi_insts in PIT",
+                                mi_morphs    = panic "No mi_morphs in PIT",
                                 mi_fam_insts = panic "No mi_fam_insts in PIT",
                                 mi_rules     = panic "No mi_rules in PIT",
                                 mi_anns      = panic "No mi_anns in PIT"
@@ -505,6 +507,7 @@ loadInterface doc_str mod from
                                          new_eps_complete_sigs,
                   eps_inst_env     = extendInstEnvList (eps_inst_env eps)
                                                        new_eps_insts,
+                  eps_morphs_env   = foldr extendMorphEnv (eps_morphs_env eps) new_eps_morphs,
                   eps_fam_inst_env = extendFamInstEnvList (eps_fam_inst_env eps)
                                                           new_eps_fam_insts,
                   eps_ann_env      = extendAnnEnvList (eps_ann_env eps)
@@ -1016,6 +1019,7 @@ initExternalPackageState
       eps_free_holes       = emptyInstalledModuleEnv,
       eps_PTE              = emptyTypeEnv,
       eps_inst_env         = emptyInstEnv,
+      eps_morphs_env       = [],
       eps_fam_inst_env     = emptyFamInstEnv,
       eps_rule_base        = mkRuleBase builtinRules,
         -- Initialise the EPS rule pool with the built-in rules
@@ -1143,6 +1147,7 @@ pprModIface iface
         , pprFixities (mi_fixities iface)
         , vcat [ppr ver $$ nest 2 (ppr decl) | (ver,decl) <- mi_decls iface]
         , vcat (map ppr (mi_insts iface))
+        , vcat (map ppr (mi_morphs iface))
         , vcat (map ppr (mi_fam_insts iface))
         , vcat (map ppr (mi_rules iface))
         , ppr (mi_warns iface)

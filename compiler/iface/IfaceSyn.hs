@@ -14,7 +14,7 @@ module IfaceSyn (
         IfaceBinding(..), IfaceConAlt(..),
         IfaceIdInfo(..), IfaceIdDetails(..), IfaceUnfolding(..),
         IfaceInfoItem(..), IfaceRule(..), IfaceAnnotation(..), IfaceAnnTarget,
-        IfaceClsInst(..), IfaceFamInst(..), IfaceTickish(..),
+        IfaceClsInst(..), IfaceMorph(..), IfaceFamInst(..), IfaceTickish(..),
         IfaceClassBody(..),
         IfaceBang(..),
         IfaceSrcBang(..), SrcUnpackedness(..), SrcStrictness(..),
@@ -284,6 +284,9 @@ data IfaceClsInst
         -- and we don't want that to wobble gratuitously
         -- If this instance decl is *used*, we'll record a usage on the dfun;
         -- and if the head does not change it won't be used if it wasn't before
+
+data IfaceMorph
+  = IfaceMorph { ifMDFun    :: IfExtName }
 
 -- The ifFamInstTys field of IfaceFamInst contains a list of the rough
 -- match types
@@ -1139,6 +1142,14 @@ instance Outputable IfaceClsInst where
               <+> (if isOrphan orph then text "[orphan]" else Outputable.empty)
               <+> ppr cls <+> brackets (pprWithCommas ppr_rough mb_tcs))
          2 (equals <+> ppr dfun_id)
+
+instance Outputable IfaceMorph where
+  ppr (IfaceMorph { ifMDFun = dfun })
+    = hang (text "class morphism"
+              <+> ppr ant <+> text "->" <+> ppr con)
+         2 (equals <+> ppr dfun) where
+         con = "?"
+         ant = "?"
 
 instance Outputable IfaceFamInst where
   ppr (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcs
@@ -2003,6 +2014,13 @@ instance Binary IfaceClsInst where
         flag <- get bh
         orph <- get bh
         return (IfaceClsInst cls tys dfun flag orph)
+
+instance Binary IfaceMorph where
+    put_ bh (IfaceMorph dfun) = do
+        put_ bh dfun
+    get bh = do
+        dfun <- get bh
+        return (IfaceMorph dfun)
 
 instance Binary IfaceFamInst where
     put_ bh (IfaceFamInst fam tys name orph) = do
