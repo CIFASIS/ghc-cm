@@ -7,11 +7,11 @@ module TcInstDcls ( tcInstDecls1 ) where
 
 import HsSyn
 import TcRnTypes
-import TcEnv( InstInfo )
+import TcEnv( InstInfo, MorphInfo )
 import TcDeriv
 import HsExtension ( GhcRn )
 
 -- We need this because of the mutual recursion
 -- between TcTyClsDecls and TcInstDcls
 tcInstDecls1 :: [LInstDecl GhcRn]
-             -> TcM (TcGblEnv, [InstInfo GhcRn], [DerivInfo])
+             -> TcM (TcGblEnv, [InstInfo GhcRn], [MorphInfo GhcRn], [DerivInfo])

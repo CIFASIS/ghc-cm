@@ -10,7 +10,7 @@ module TcEnv(
         TyThing(..), TcTyThing(..), TcId,
 
         -- Instance environment, and InstInfo type
-        InstInfo(..), iDFunId, pprInstInfoDetails,
+        InstInfo(..), MorphInfo(..), iDFunId, pprInstInfoDetails,
         simpleInstInfoClsTy, simpleInstInfoTy, simpleInstInfoTyCon,
         InstBindings(..),
 
@@ -638,6 +638,7 @@ tcAddDataFamConPlaceholders inst_decls thing_inside
     -- get_cons extracts the *constructor* bindings of the declaration
     get_cons :: LInstDecl GhcRn -> [Name]
     get_cons (L _ (TyFamInstD {}))                     = []
+    get_cons (L _ (MorphD {}))                         = []
     get_cons (L _ (DataFamInstD { dfid_inst = fid }))  = get_fi_cons fid
     get_cons (L _ (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts = fids } }))
       = concatMap (get_fi_cons . unLoc) fids
@@ -868,6 +869,12 @@ data InstInfo a
   = InstInfo
       { iSpec   :: ClsInst          -- Includes the dfun id
       , iBinds  :: InstBindings a
+      }
+
+data MorphInfo a
+  = MorphInfo
+      { mSpec   :: Morph
+      , mBinds  :: InstBindings a
       }
 
 iDFunId :: InstInfo a -> DFunId

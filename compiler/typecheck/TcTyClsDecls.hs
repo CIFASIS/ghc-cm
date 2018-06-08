@@ -118,6 +118,7 @@ tcTyAndClassDecls :: [TyClGroup GhcRn]      -- Mutually-recursive groups in
                                             -- classes
                                             -- and their implicit Ids,DataCons
                          , [InstInfo GhcRn] -- Source-code instance decls info
+                         , [MorphInfo GhcRn]
                          , [DerivInfo]      -- data family deriving info
                          )
 -- Fails if there are any errors
@@ -125,25 +126,27 @@ tcTyAndClassDecls tyclds_s
   -- The code recovers internally, but if anything gave rise to
   -- an error we'd better stop now, to avoid a cascade
   -- Type check each group in dependency order folding the global env
-  = checkNoErrs $ fold_env [] [] tyclds_s
+  = checkNoErrs $ fold_env [] [] [] tyclds_s
   where
     fold_env :: [InstInfo GhcRn]
+             -> [MorphInfo GhcRn]
              -> [DerivInfo]
              -> [TyClGroup GhcRn]
-             -> TcM (TcGblEnv, [InstInfo GhcRn], [DerivInfo])
-    fold_env inst_info deriv_info []
+             -> TcM (TcGblEnv, [InstInfo GhcRn], [MorphInfo GhcRn], [DerivInfo])
+    fold_env inst_info morph_info deriv_info []
       = do { gbl_env <- getGblEnv
-           ; return (gbl_env, inst_info, deriv_info) }
-    fold_env inst_info deriv_info (tyclds:tyclds_s)
-      = do { (tcg_env, inst_info', deriv_info') <- tcTyClGroup tyclds
+           ; return (gbl_env, inst_info, morph_info, deriv_info) }
+    fold_env inst_info morph_info deriv_info (tyclds:tyclds_s)
+      = do { (tcg_env, inst_info', morph_info', deriv_info') <- tcTyClGroup tyclds
            ; setGblEnv tcg_env $
                -- remaining groups are typechecked in the extended global env.
              fold_env (inst_info' ++ inst_info)
+                      (morph_info' ++ morph_info)
                       (deriv_info' ++ deriv_info)
                       tyclds_s }
 
 tcTyClGroup :: TyClGroup GhcRn
-            -> TcM (TcGblEnv, [InstInfo GhcRn], [DerivInfo])
+            -> TcM (TcGblEnv, [InstInfo GhcRn], [MorphInfo GhcRn], [DerivInfo])
 -- Typecheck one strongly-connected component of type, class, and instance decls
 -- See Note [TyClGroups and dependency analysis] in HsDecls
 tcTyClGroup (TyClGroup { group_tyclds = tyclds
@@ -182,9 +185,9 @@ tcTyClGroup (TyClGroup { group_tyclds = tyclds
        ; setGblEnv gbl_env $
     do {
             -- Step 4: check instance declarations
-       ; (gbl_env, inst_info, datafam_deriv_info) <- tcInstDecls1 instds
+       ; (gbl_env, inst_info, morph_info, datafam_deriv_info) <- tcInstDecls1 instds
 
-       ; return (gbl_env, inst_info, datafam_deriv_info) } } }
+       ; return (gbl_env, inst_info, morph_info, datafam_deriv_info) } } }
 
 tcTyClDecls :: [LTyClDecl GhcRn] -> RoleAnnotEnv -> TcM [TyCon]
 tcTyClDecls tyclds role_annots

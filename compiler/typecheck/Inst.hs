@@ -19,9 +19,12 @@ module Inst (
 
        newOverloadedLit, mkOverLit,
 
+       ClsInstMorph(..),
+
        newClsInst,
        tcGetInsts, tcGetInstEnvs, getOverlapFlag,
        tcExtendLocalInstEnv,
+       tcExtendMorphs,
        instCallConstraints, newMethodFromName,
        tcSyntaxName,
 
@@ -723,6 +726,14 @@ instOrphWarn inst
       text "wrap the type with a newtype and declare the instance on the new type." :
       []
 
+tcExtendMorphs :: [Morph] -> TcM a -> TcM a
+tcExtendMorphs ms thing_inside = do
+  traceTc "Adding morphisms:" (vcat (map ppr ms))
+  env <- getGblEnv
+  let env' = env { tcg_morphs_env = tcg_morphs_env env ++ ms
+                 , tcg_morphs = tcg_morphs env ++ ms}
+  setGblEnv env' thing_inside
+
 tcExtendLocalInstEnv :: [ClsInst] -> TcM a -> TcM a
   -- Add new locally-defined instances
 tcExtendLocalInstEnv dfuns thing_inside
@@ -857,3 +868,27 @@ addClsInstsErr herald ispecs
    -- The sortWith just arranges that instances are dislayed in order
    -- of source location, which reduced wobbling in error messages,
    -- and is better for users
+
+{-
+************************************************************************
+*                                                                      *
+        Class Morphisms
+*                                                                      *
+************************************************************************
+-}
+
+---------------------------------------------
+-- Here we store information that we'll need to make the
+-- bindings for the generated instances
+data ClsInstMorph
+  = ClsInstMorph
+      { info_cls   :: ClsInst -- Instance
+      , info_morph :: Maybe Morph  -- ^ Generated with this morphisms
+      , ant_dfun   :: Maybe DFunId -- DFunId of the antecedent of the morphism
+      }
+
+instance Outputable ClsInstMorph where
+   ppr ci = text "ClsInstInfo: "
+         <+> ppr (info_cls ci)
+         <+> text "generated with morphism "
+         <+> ppr (info_morph ci)

@@ -138,7 +138,6 @@ module TcRnTypes(
         -- Role annotations
         RoleAnnotEnv, emptyRoleAnnotEnv, mkRoleAnnotEnv,
         lookupRoleAnnot, getRoleAnnots,
-
   ) where
 
 #include "HsVersions.h"
@@ -232,7 +231,6 @@ data NameShape = NameShape {
         ns_exports :: [AvailInfo],
         ns_map :: OccEnv Name
     }
-
 
 {-
 ************************************************************************
@@ -531,6 +529,7 @@ data TcGblEnv
           -- Includes the dfuns in tcg_insts
         tcg_fam_inst_env :: FamInstEnv, -- ^ Ditto for family instances
         tcg_ann_env      :: AnnEnv,     -- ^ And for annotations
+        tcg_morphs_env   :: [Morph], -- ^ And for morphisms
 
                 -- Now a bunch of things about this module that are simply
                 -- accumulated, but never consulted until the end.
@@ -672,6 +671,7 @@ data TcGblEnv
         tcg_anns      :: [Annotation],       -- ...Annotations
         tcg_tcs       :: [TyCon],            -- ...TyCons and Classes
         tcg_insts     :: [ClsInst],          -- ...Instances
+        tcg_morphs    :: [Morph],            -- ...Morphisms
         tcg_fam_insts :: [FamInst],          -- ...Family instances
         tcg_rules     :: [LRuleDecl GhcTc],  -- ...Rules
         tcg_fords     :: [LForeignDecl GhcTc], -- ...Foreign import & exports
