@@ -323,6 +323,7 @@ tcRnImports hsc_env import_decls
                                    && mod /= moduleName this_mod
               ; (home_insts, home_fam_insts) = hptInstances hsc_env
                                                             want_instances
+              ; home_morphs = hptMorphs hsc_env want_instances
               } ;
 
                 -- Record boot-file info in the EPS, so that it's
@@ -337,6 +338,7 @@ tcRnImports hsc_env import_decls
               tcg_imports      = tcg_imports gbl `plusImportAvails` imports,
               tcg_rn_imports   = rn_imports,
               tcg_inst_env     = extendInstEnvList (tcg_inst_env gbl) home_insts,
+              tcg_morphs_env   = foldr extendMorphEnv (tcg_morphs_env gbl) home_morphs,
               tcg_fam_inst_env = extendFamInstEnvList (tcg_fam_inst_env gbl)
                                                       home_fam_insts,
               tcg_hpc          = hpc_info
@@ -1803,6 +1805,8 @@ runTcInteractive hsc_env thing_inside
                          , tcg_inst_env     = extendInstEnvList
                                                (extendInstEnvList (tcg_inst_env gbl_env) ic_insts)
                                                home_insts
+                         , tcg_morphs_env   = foldr extendMorphEnv (tcg_morphs_env gbl_env)
+                                                    (home_morphs ++ ic_morphs)
                          , tcg_fam_inst_env = extendFamInstEnvList
                                                (extendFamInstEnvList (tcg_fam_inst_env gbl_env)
                                                                      ic_finsts)
@@ -1821,9 +1825,10 @@ runTcInteractive hsc_env thing_inside
        ; setEnvs (gbl_env', lcl_env') thing_inside }
   where
     (home_insts, home_fam_insts) = hptInstances hsc_env (\_ -> True)
+    home_morphs                  = hptMorphs hsc_env (\_ -> True)
 
     icxt                     = hsc_IC hsc_env
-    (ic_insts, ic_finsts)    = ic_instances icxt
+    (ic_insts, ic_finsts, ic_morphs) = ic_instances icxt
     (lcl_ids, top_ty_things) = partitionWith is_closed (ic_tythings icxt)
 
     is_closed :: TyThing -> Either (Name, TcTyThing) TyThing
@@ -1839,7 +1844,8 @@ runTcInteractive hsc_env thing_inside
       = Right thing
 
     type_env1 = mkTypeEnvWithImplicits top_ty_things
-    type_env  = extendTypeEnvWithIds type_env1 (map instanceDFunId ic_insts)
+    type_env  = extendTypeEnvWithIds (extendTypeEnvWithIds type_env1 (map instanceDFunId ic_insts))
+                                     (map mDFun ic_morphs)
                 -- Putting the dfuns in the type_env
                 -- is just to keep Core Lint happy
 

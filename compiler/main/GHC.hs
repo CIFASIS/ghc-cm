@@ -205,6 +205,7 @@ module GHC (
         instanceDFunId,
         pprInstance, pprInstanceHdr,
         pprFamInst,
+        pprMorphHdr,
 
         FamInst,
 
@@ -925,6 +926,7 @@ typecheckModule pmod = do
            minf_exports   = md_exports details,
            minf_rdr_env   = Just (tcg_rdr_env tc_gbl_env),
            minf_instances = fixSafeInstances safe $ md_insts details,
+           minf_morphs    = md_morphs details,
            minf_iface     = Nothing,
            minf_safe      = safe,
            minf_modBreaks = emptyModBreaks
@@ -1094,7 +1096,7 @@ getBindings = withSession $ \hsc_env ->
     return $ icInScopeTTs $ hsc_IC hsc_env
 
 -- | Return the instances for the current interactive session.
-getInsts :: GhcMonad m => m ([ClsInst], [FamInst])
+getInsts :: GhcMonad m => m ([ClsInst], [FamInst], [Morph])
 getInsts = withSession $ \hsc_env ->
     return $ ic_instances (hsc_IC hsc_env)
 
@@ -1108,6 +1110,7 @@ data ModuleInfo = ModuleInfo {
         minf_exports   :: [AvailInfo],
         minf_rdr_env   :: Maybe GlobalRdrEnv,   -- Nothing for a compiled/package mod
         minf_instances :: [ClsInst],
+        minf_morphs    :: [Morph],
         minf_iface     :: Maybe ModIface,
         minf_safe      :: SafeHaskellMode,
         minf_modBreaks :: ModBreaks
@@ -1147,6 +1150,7 @@ getPackageModuleInfo hsc_env mdl
                         minf_exports   = avails,
                         minf_rdr_env   = Just $! availsToGlobalRdrEnv (moduleName mdl) avails,
                         minf_instances = error "getModuleInfo: instances for package module unimplemented",
+                        minf_morphs    = error "getModuleInfo: morphisms for package module unimplemented",
                         minf_iface     = Just iface,
                         minf_safe      = getSafeMode $ mi_trust iface,
                         minf_modBreaks = emptyModBreaks
@@ -1164,6 +1168,7 @@ getHomeModuleInfo hsc_env mdl =
                         minf_exports   = md_exports details,
                         minf_rdr_env   = mi_globals $! hm_iface hmi,
                         minf_instances = md_insts details,
+                        minf_morphs    = md_morphs details,
                         minf_iface     = Just iface,
                         minf_safe      = getSafeMode $ mi_trust iface
                        ,minf_modBreaks = getModBreaks hmi
