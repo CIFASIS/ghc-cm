@@ -369,6 +369,7 @@ tcInstDecls1    -- Deal with both source-code and imported instance decls
    -> TcM (TcGblEnv,            -- The full inst env
            [InstInfo GhcRn],    -- Source-code instance decls to process;
                                 -- contains all dfuns for this module
+           [MorphInfo GhcRn],   -- Typechecked class morphisms
            [DerivInfo])         -- From data family instances
 
 tcInstDecls1 inst_decls
@@ -385,6 +386,7 @@ tcInstDecls1 inst_decls
 
        ; return ( gbl_env
                 , local_infos
+                , []
                 , concat datafam_deriv_infos ) }
 
 -- | Use DerivInfo for data family instances (produced by tcInstDecls1),
@@ -404,6 +406,10 @@ tcInstDeclsDeriv datafam_deriv_infos tyclds derivds
                ; let deriv_infos = datafam_deriv_infos ++ data_deriv_infos
                ; (tcg_env, info_bag, valbinds) <- tcDeriving deriv_infos derivds
                ; return (tcg_env, bagToList info_bag, valbinds) }
+
+addMorphisms :: [MorphInfo b] -> TcM a -> TcM a
+addMorphisms ms thing_inside
+  = tcExtendMorphs (map mSpec ms) thing_inside
 
 addClsInsts :: [InstInfo GhcRn] -> TcM a -> TcM a
 addClsInsts infos thing_inside

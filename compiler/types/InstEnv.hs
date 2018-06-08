@@ -12,13 +12,13 @@ The bits common to TcInstDcls and TcDeriv.
 module InstEnv (
         DFunId, InstMatch, ClsInstLookupResult,
         OverlapFlag(..), OverlapMode(..), setOverlapModeMaybe,
-        ClsInst(..), DFunInstType, pprInstance, pprInstanceHdr, pprInstances,
+        ClsInst(..), Morph(..), DFunInstType, pprInstance, pprInstanceHdr, pprInstances, pprMorphHdr,
         instanceHead, instanceSig, mkLocalInstance, mkImportedInstance,
-        instanceDFunId, tidyClsInstDFun, instanceRoughTcs,
+        instanceDFunId, tidyClsInstDFun, tidyMorphDFun, instanceRoughTcs,
         fuzzyClsInstCmp, orphNamesOfClsInst,
 
         InstEnvs(..), VisibleOrphanModules, InstEnv,
-        emptyInstEnv, extendInstEnv,
+        emptyInstEnv, extendInstEnv, extendMorphEnv
         deleteFromInstEnv, deleteDFunFromInstEnv,
         identicalClsInstHead,
         extendInstEnvList, lookupUniqueInstEnv, lookupInstEnv, instEnvElts,
@@ -96,6 +96,13 @@ data ClsInst
              , is_orphan :: IsOrphan
     }
   deriving Data
+
+data Morph
+  = Morph
+      { mAnt    :: Class
+      , mCon    :: Class
+      , mDFun   :: DFunId
+      }
 
 -- | A fuzzy comparison function for class instances, intended for sorting
 -- instances before displaying them to the user.
@@ -203,6 +210,10 @@ tidyClsInstDFun :: (DFunId -> DFunId) -> ClsInst -> ClsInst
 tidyClsInstDFun tidy_dfun ispec
   = ispec { is_dfun = tidy_dfun (is_dfun ispec) }
 
+tidyMorphDFun :: (DFunId -> DFunId) -> Morph -> Morph
+tidyMorphDFun tidy_dfun morph
+  = morph { mDFun = tidy_dfun (mDFun morph) }
+
 instanceRoughTcs :: ClsInst -> [Maybe Name]
 instanceRoughTcs = is_tcs
 
@@ -228,6 +239,26 @@ pprInstanceHdr (ClsInst { is_flag = flag, is_dfun = dfun })
 
 pprInstances :: [ClsInst] -> SDoc
 pprInstances ispecs = vcat (map pprInstance ispecs)
+
+instance NamedThing Morph where
+   getName morph = getName (mDFun morph)
+
+instance Outputable Morph where
+   ppr = pprMorph
+
+pprMorph :: Morph -> SDoc
+-- Prints the Morph as an instance declaration
+pprMorph morph
+  = hang (pprMorphHdr morph)
+       2 (vcat [ text "--" <+> pprDefinedAt (getName morph)
+               , whenPprDebug (ppr (mDFun morph)) ])
+
+pprMorphHdr :: Morph -> SDoc
+pprMorphHdr (Morph { mDFun = dfun })
+  = text "class morphism" <+> ppr ant <+> text "->" <+> ppr con
+        where
+            (_, _:ct:_, con, _) = tcSplitDFunTy (idType dfun)
+            (ant, _) = tcSplitDFunHead ct
 
 instanceHead :: ClsInst -> ([TyVar], Class, [Type])
 -- Returns the head, using the fresh tyavs from the ClsInst
@@ -473,6 +504,9 @@ deleteFromInstEnv inst_env ins_item@(ClsInst { is_cls_nm = cls_nm })
   = adjustUDFM adjust inst_env cls_nm
   where
     adjust (ClsIE items) = ClsIE (filterOut (identicalClsInstHead ins_item) items)
+
+extendMorphEnv :: Morph -> [Morph] -> [Morph]
+extendMorphEnv = (:)
 
 deleteDFunFromInstEnv :: InstEnv -> DFunId -> InstEnv
 -- Delete a specific instance fron an InstEnv
