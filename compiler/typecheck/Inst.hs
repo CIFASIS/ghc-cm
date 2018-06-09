@@ -62,7 +62,7 @@ import Class( Class )
 import MkId( mkDictFunId )
 import Id
 import Name
-import Var      ( EvVar, mkTyVar, tyVarName, TyVarBndr(..) )
+import Var      ( EvVar, mkTyVar, tyVarName, TyVarBndr(..), varType, updateVarType )
 import DataCon
 import TyCon
 import VarEnv
@@ -71,6 +71,11 @@ import SrcLoc
 import DynFlags
 import Util
 import Outputable
+import Unify
+import Control.Monad
+import Class
+import Data.List ( partition )
+import Data.Maybe ( catMaybes )
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad( unless )
@@ -895,12 +900,292 @@ instance Outputable ClsInstMorph where
          <+> text "generated with morphism "
          <+> ppr (info_morph ci)
 
--- Stubs
+-- Auxiliary function
+elemBy :: (a -> a -> Bool) -> [a] -> a -> Bool
+elemBy eq xs x = any (eq x) xs
+
+---------------------------------------------
+-- These functions calculate the closure of a context using its superclasses,
+-- its related morphisms or both.
+
+-- TODO: factor them together.
+
+expandThetaMO :: [Type] -> TcM [Type]
+expandThetaMO tys =
+  do res <- loop [] tys
+     traceTc "expandThetaMO = " $ ppr res
+     return res
+  where
+  loop ts [] = return ts
+  loop ts frontier = do
+    let all = ts ++ frontier
+    ts' <- expandThetaMO_step frontier
+    let new_frontier = filter ( not . (elemBy eqType all) ) ts'
+    loop all new_frontier
+---------------
+expandThetaSC :: [Type] -> TcM [Type]
+expandThetaSC tys =
+  do res <- loop [] tys
+     traceTc "expandThetaSC = " $ ppr res
+     return res
+  where
+  loop ts [] = return ts
+  loop ts frontier = do
+    let all = ts ++ frontier
+    ts' <- expandThetaSC_step frontier
+    let new_frontier = filter ( not . (elemBy eqType all) ) ts'
+    loop all new_frontier
+---------------
 expandTheta :: [Type] -> TcM [Type]
-expandTheta = return
+expandTheta tys =
+  do full <- loop [] tys
+     traceTc "expandTheta, full = " $ ppr full
+     trim <- remove_immediate_super full
+     trim_w_orig <- restore_original trim
+     traceTc "expandTheta, trim = " $ ppr trim
+     return trim_w_orig
+  where
+  loop ts [] = return ts
+  loop ts frontier = do
+    let all = ts ++ frontier
+    ts' <- expandThetaMO_step frontier
+    ts'' <- expandThetaSC_step frontier
+    let new_frontier = filter ( not . (elemBy eqType all) ) (ts' ++ ts'')
+    loop all new_frontier
+
+  remove_immediate_super cts =
+    do scs <- expandThetaSC_step cts
+       case partition (elemBy eqType scs) cts of
+         ([], cts) -> return cts
+         (_, cts') -> remove_immediate_super cts' -- I think it's useless to loop
+
+  restore_original cts =
+    do let (_, cts') = partition (elemBy eqType cts) tys
+       return (cts ++ cts')
+---------------
+-- One step of expanding the context with morphisms
+expandThetaMO_step :: [Type] -> TcM [Type]
+expandThetaMO_step tys = do
+  let split_tys = catMaybes $ map getClassPredTys_maybe tys
+  split_tys' <- concatMapM mapply_ctx split_tys
+  let new_tys = flip map split_tys' (\(cl, ts) -> mkTyConApp (classTyCon cl) ts)
+  return new_tys
+
+  where
+  mapply_ctx :: (Class, [Type])  -> TcM [(Class, [Type])]
+  mapply_ctx (cls, tys) =
+    do env <- getGblEnv
+       eps <- getEps
+       let ms = eps_morphs_env eps ++ tcg_morphs_env env
+       let ms' = filter ( (cls==) . mAnt ) ms
+       let new = flip map ms' (\minfo -> (mCon minfo, tys))
+       return new
+
+-- One step of expanding the context with its immediate superclasses
+expandThetaSC_step :: [Type] -> TcM [Type]
+expandThetaSC_step tys = do
+  let split_tys = catMaybes $ map getClassPredTys_maybe tys
+  superclasses <- concatMapM get_supercls split_tys
+  let new_tys = flip map superclasses (\(cl, ts) -> mkTyConApp (classTyCon cl) ts)
+  return new_tys
+
+  where
+  get_supercls :: (Class, [Type]) -> TcM [(Class, [Type])]
+  get_supercls (cls, [ty]) = -- Hace falta revisar que no sea una abstract class?
+    case classTyVars cls of
+      [v] -> do traceTc "get_supercls" $ ppr (cls, ty)
+                let superclasses = substTysWith [v] [ty] $ classSCTheta cls
+                traceTc "Tys of: " $ ppr cls <+> text " -----> " <+> ppr ty
+                traceTc "Superclasses of: " $ ppr cls <+> text " -----> " <+> ppr superclasses
+                let split_superclasses = catMaybes $ map getClassPredTys_maybe superclasses
+                let valid_superclasses = filter (\(_, tys') -> eqTypes [ty] tys') split_superclasses
+                traceTc "Valid superclasses of: " $ ppr cls <+> text " -----> " <+> ppr valid_superclasses
+                return valid_superclasses
+      _ -> return []
+  get_supercls _ = return []
+
+expandTy :: Type -> TcM Type
+expandTy ty =
+    do let (tyvs, theta, cod) = tcSplitSigmaTyBndrs ty
+       theta' <- expandTheta theta
+       return $ mkSigmaTy tyvs theta' cod
 
 expandSig :: TcIdSigInfo -> TcM TcIdSigInfo
-expandSig = return
+expandSig (sig@(CompleteSig { sig_bndr = id })) =
+    do ty' <- expandTy (varType id)
+       traceTc "expandSig" $ ppr (varType id, ty')
+       return $ sig { sig_bndr = updateVarType (\_ -> ty') id }
 
+expandSig sig =
+    do traceTc "expandSig default" $ ppr sig
+       return sig
+
+---------------------------------------------
+-- i1 > i2 iff i1 `more_general` i2
+moreGeneral :: ClsInstMorph
+            -> ClsInstMorph
+            -> TcM Bool
+moreGeneral ( ClsInstMorph { info_cls = i1 } )
+            ( ClsInstMorph { info_cls = i2 } ) =
+  do let (_, theta1, ty1) = tcSplitSigmaTy (varType (is_dfun i1))
+     let (_, theta2, ty2) = tcSplitSigmaTy (varType (is_dfun i2))
+     res <- case tcMatchTy ty1 ty2 of
+              Nothing -> return False
+              Just s  -> do l <- expandThetaSC (substTys s theta1)
+                            r <- expandThetaSC theta2
+                            return $ l `is_subset` r
+     when res $ traceTc "" $ ppr i1 <+> text " more general than " <+> ppr i2
+     return res
+  where is_subset xs ys = all (elemBy eqType ys) xs
+
+strictlyMoreGeneral :: ClsInstMorph -> ClsInstMorph -> TcM Bool
+strictlyMoreGeneral i1 i2 =
+    do liftM2 (&&) (moreGeneral i1 i2) (liftM not (moreGeneral i2 i1))
+
+maximals :: Monad m => (a -> a -> m Bool) -> [a] -> m [a]
+maximals gt es =
+    foldM insert [] es where
+
+    insert es e = do b <- anyM (\e' -> gt e' e) es
+                     if b
+                     then return es
+                     else do l <- filterM (\y -> liftM not $ gt e y) es
+                             return (e:l)
+
+shadowed :: ClsInstMorph -> [ClsInstMorph] -> TcM Bool
+shadowed i is = anyM (flip moreGeneral i) is
+
+keep_unshadowed :: [ClsInstMorph] -> [ClsInstMorph] -> TcM [ClsInstMorph]
+keep_unshadowed is os = filterM (\i -> liftM not $ shadowed i os) is
+
+mapply :: Morph
+       -> ClsInstMorph
+       -> TcM (Maybe ClsInstMorph)
+mapply m@(Morph { mAnt = ant
+                , mCon = con
+                , mDFun = _ })
+       (ClsInstMorph { info_cls = ispec })
+    | ant /= is_cls ispec =
+        return Nothing
+
+    | otherwise = do
+        let (d_tyvs, d_theta, _, d_tys) = tcSplitDFunTy (varType (is_dfun ispec))
+        (sfresh, tyvs) <- freshenTyVarBndrs d_tyvs
+        let theta = substTys sfresh d_theta
+        let tys   = substTys sfresh d_tys
+
+        -- FIXME: Use span for the morphism? Needs some refactoring.
+        dfun_name <- newDFunName con tys noSrcSpan
+        let dfun = mkDictFunId dfun_name tyvs theta con tys
+
+        let new_spec = ispec { is_cls       = con
+                             , is_cls_nm    = className con
+                             , is_dfun      = dfun
+                             , is_tvs       = tyvs
+                             , is_tys       = tys
+                             , is_dfun_name = tyVarName dfun
+                             }
+        let new_cinfo = ClsInstMorph { info_cls = new_spec
+                                     , info_morph = Just m
+                                     , ant_dfun = Just $ is_dfun ispec}
+        traceTc "mapply applied: " $ vcat [ppr m, ppr ispec, ppr new_spec]
+
+        return $ Just new_cinfo
+
+closure_step :: [Morph] -> [ClsInstMorph] -> TcM [ClsInstMorph]
+closure_step ms is =
+    do cims <- sequence [mapply m i | m <- ms, i <- is ]
+       return (catMaybes cims)
+
+instance_closure :: [Morph] -> [ClsInstMorph] -> TcM [ClsInstMorph]
+instance_closure ms is =
+    do ns <- closure_step ms is
+       cls <- loop [] ns
+       traceTc "instance_closure, all derived instances:" $ ppr cls
+       new <- keep_unshadowed cls is
+       traceTc "instance_closure, unshadowed instances:" $ ppr new
+       maxs <- maximals strictlyMoreGeneral new
+       traceTc "instance_closure, maximal instances:" $ ppr maxs
+       return maxs
+    where
+    loop vs [] = return vs
+    loop vs frontier =
+        do let all = vs ++ frontier ++ is
+           new_frontier' <- closure_step ms frontier
+           new_frontier <- keep_unshadowed new_frontier' all
+           loop all new_frontier
+
+
+-- Checking for ill-formed morphisms.
+-- We consider a morphism ill if there's no way to generically obtain an
+-- instance for the consequent's superclasses.
+--
+-- For example, this should fail:
+-- |  instance A a
+-- |  instance C a => B a
+-- |  morphism A -> B
+--
+-- Unless we add at least one of these morphisms
+-- | morphism B -> C
+-- | morphism A -> C
+--
+-- TODO: we are doing this step only when all morphisms are in-scope.
+-- Given the dependency analysis, it might just work to do it for each
+-- one.
+checkMorphWF :: Morph -> TcM ()
+checkMorphWF m@(Morph { mDFun = dfun_m }) =
+    do traceTc "checkMorphWF" $ ppr m
+       let (_, co:an:_, _) = tcSplitSigmaTy (varType dfun_m) -- FIX ME
+       scs_con <- expandThetaSC_step [co]
+       scs_ant <- expandThetaSC [an]
+
+       let is_upward_morph = elemBy eqType scs_ant co
+
+       scs_ant' <- if is_upward_morph then return [an] else return scs_ant
+
+       scs_ant'' <- expandThetaMO scs_ant'
+
+       -- If any SC of the consequentis not on the computed set, fail
+       flip mapM_ scs_con (\ct ->
+           unless (elemBy eqType scs_ant'' ct) $
+            setSrcSpan ( getSrcSpan dfun_m ) $
+             addErrCtxt ( morphDeclCtxt2 m ) $
+              addErrCtxt ( generically_scs co ct ) $
+               failWithTc $ text "Bad morphism declaration")
+   where
+    generically_scs :: Type -> Type -> SDoc
+    generically_scs c sc = text "No generic way to obtain an instance for the"
+                            <+> ppr sc
+                            <+> text "superclass of"
+                            <+> ppr c
+    morph_decl_ctxt :: SDoc -> SDoc
+    morph_decl_ctxt doc = hang (text "In the morphism declaration")
+                            2 (quotes doc)
+    morphDeclCtxt2 :: Morph -> SDoc
+    morphDeclCtxt2 morph
+        = morph_decl_ctxt (ppr morph)
+
+---------------------------------------------
+-- Putting it all together
 cover :: TcM [ClsInstMorph]
-cover = return []
+cover =
+    do env <- getGblEnv
+       eps <- getEps
+
+       let all_morphs = eps_morphs_env eps ++ tcg_morphs_env env
+       mapM_ checkMorphWF all_morphs
+
+       InstEnvs { ie_global = gbl , ie_local = lcl } <- tcGetInstEnvs
+       let all_insts = instEnvElts gbl ++ instEnvElts lcl
+
+       traceTc "in cover, morphs = " $ ppr all_morphs
+       traceTc "in cover, insts  = " $ ppr all_insts
+
+       all_insts <- return $ map mkClsInstInfo all_insts
+       all_insts <- instance_closure all_morphs all_insts
+       return all_insts
+    where
+    mkClsInstInfo :: ClsInst -> ClsInstMorph
+    mkClsInstInfo cls = ClsInstMorph { info_cls = cls
+                                     , info_morph = Nothing
+                                     , ant_dfun = Nothing}

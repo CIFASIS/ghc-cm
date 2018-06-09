@@ -133,6 +133,8 @@ import Data.Data ( Data )
 import HsDumpAst
 import qualified Data.Set as S
 
+import Var (varType)
+
 import Control.Monad
 
 #include "HsVersions.h"

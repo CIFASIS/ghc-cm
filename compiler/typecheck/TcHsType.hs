@@ -9,6 +9,7 @@
 
 module TcHsType (
         -- Type signatures
+        tcClass,
         kcHsSigType, tcClassSigType,
         tcHsSigType, tcHsSigWcType,
         tcHsPartialSigType,
