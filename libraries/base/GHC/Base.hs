@@ -684,6 +684,16 @@ class Applicative m => Monad m where
     fail        :: String -> m a
     fail s      = errorWithoutStackTrace s
 
+class morphism Monad -> Applicative where
+    pure = return
+    (<*>) = ap
+
+class morphism Applicative -> Functor where
+    fmap f x = pure f <*> x
+
+class morphism Monad -> Functor where
+    fmap = liftM
+
 {- Note [Recursive bindings for Applicative/Monad]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
