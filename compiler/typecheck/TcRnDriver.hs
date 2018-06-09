@@ -614,7 +614,7 @@ tcRnHsBootDecls hsc_src decls
 
                 -- Typecheck type/class/instance decls
         ; traceTc "Tc2 (boot)" empty
-        ; (tcg_env, inst_infos, _morph_info, _deriv_binds)
+        ; (tcg_env, inst_infos, _, _deriv_binds)
              <- tcTyClsInstDecls tycl_decls deriv_decls val_binds
         ; setGblEnv tcg_env     $ do {
 
@@ -1371,7 +1371,7 @@ tcTopSrcDecls (HsGroup { hs_tyclds = tycl_decls,
                 -- Source-language instances, including derivings,
                 -- and import the supporting declarations
         traceTc "Tc3" empty ;
-        (tcg_env, inst_infos, _morph_info, XValBindsLR (NValBinds deriv_binds deriv_sigs))
+        (tcg_env, inst_infos, morph_infos, XValBindsLR (NValBinds deriv_binds deriv_sigs))
             <- tcTyClsInstDecls tycl_decls deriv_decls val_binds ;
 
         setGblEnv tcg_env       $ do {
@@ -1412,7 +1412,7 @@ tcTopSrcDecls (HsGroup { hs_tyclds = tycl_decls,
                 -- Second pass over class and instance declarations,
                 -- now using the kind-checked decls
         traceTc "Tc6" empty ;
-        inst_binds <- tcInstDecls2 (tyClGroupTyClDecls tycl_decls) inst_infos ;
+        inst_binds <- tcInstDecls2 (tyClGroupTyClDecls tycl_decls) inst_infos morph_infos;
 
                 -- Foreign exports
         traceTc "Tc7" empty ;
@@ -1648,7 +1648,7 @@ tcTyClsInstDecls :: [TyClGroup GhcRn]
                          [InstInfo GhcRn],    -- Source-code instance decls to
                                               -- process; contains all dfuns for
                                               -- this module
-                         [MorphInfo GhcRn],   -- Typechecked class morphisms
+                         [MorphInfo GhcRn],
                           HsValBinds GhcRn)   -- Supporting bindings for derived
                                               -- instances
 
