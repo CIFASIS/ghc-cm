@@ -71,6 +71,7 @@ import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
 import Maybes
+import Data.List ( unzip4, partition )
 
 
 {-
@@ -370,25 +371,37 @@ tcInstDecls1    -- Deal with both source-code and imported instance decls
    -> TcM (TcGblEnv,            -- The full inst env
            [InstInfo GhcRn],    -- Source-code instance decls to process;
                                 -- contains all dfuns for this module
-           [MorphInfo GhcRn],   -- Typechecked class morphisms
+           [MorphInfo GhcRn],   -- Morphisms information
            [DerivInfo])         -- From data family instances
 
 tcInstDecls1 inst_decls
   = do {    -- Do class and family instance declarations
-       ; stuff <- mapAndRecoverM tcLocalInstDecl inst_decls
+       ; let (morphs, real_insts) = partition isMorphDecl inst_decls
+       ; stuff_m <- mapAndRecoverM tcLocalInstDecl morphs
+       ; let (_, ms, _, _) = unzip4 stuff_m
 
-       ; let (local_infos_s, fam_insts_s, datafam_deriv_infos) = unzip3 stuff
+       ; let local_morphs = concat ms
+       ; gbl_env_m <- addMorphisms local_morphs getGblEnv
+
+       ; stuff <- setGblEnv gbl_env_m $ mapAndRecoverM tcLocalInstDecl real_insts
+       ; let (local_infos_s, _, fam_insts_s, datafam_deriv_infos) = unzip4 stuff
              fam_insts   = concat fam_insts_s
+
              local_infos = concat local_infos_s
 
        ; gbl_env <- addClsInsts local_infos $
+                    addMorphisms local_morphs $
                     addFamInsts fam_insts   $
                     getGblEnv
 
        ; return ( gbl_env
                 , local_infos
-                , []
+                , local_morphs
                 , concat datafam_deriv_infos ) }
+
+    where
+    isMorphDecl (L _ (MorphD {})) = True
+    isMorphDecl _ = False
 
 -- | Use DerivInfo for data family instances (produced by tcInstDecls1),
 --   datatype declarations (TyClDecl), and standalone deriving declarations
@@ -452,22 +465,62 @@ the brutal solution will do.
 -}
 
 tcLocalInstDecl :: LInstDecl GhcRn
-                -> TcM ([InstInfo GhcRn], [FamInst], [DerivInfo])
+                -> TcM ([InstInfo GhcRn], [MorphInfo GhcRn], [FamInst], [DerivInfo])
         -- A source-file instance declaration
         -- Type-check all the stuff before the "where"
         --
         -- We check for respectable instance type, and context
 tcLocalInstDecl (L loc (TyFamInstD { tfid_inst = decl }))
   = do { fam_inst <- tcTyFamInstDecl Nothing (L loc decl)
-       ; return ([], [fam_inst], []) }
+       ; return ([], [], [fam_inst], []) }
 
 tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
   = do { (fam_inst, m_deriv_info) <- tcDataFamInstDecl Nothing (L loc decl)
-       ; return ([], [fam_inst], maybeToList m_deriv_info) }
+       ; return ([], [], [fam_inst], maybeToList m_deriv_info) }
 
 tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
   = do { (insts, fam_insts, deriv_infos) <- tcClsInstDecl (L loc decl)
-       ; return (insts, fam_insts, deriv_infos) }
+       ; return (insts, [], fam_insts, deriv_infos) }
+
+tcLocalInstDecl (L loc (MorphD { morph_decl = decl }))
+  = do { morphs <- tcMorphDecl (L loc decl)
+       ; return ([], [morphs], [], []) }
+
+tcMorphDecl :: LMorphDecl GhcRn
+            -> TcM (MorphInfo GhcRn)
+tcMorphDecl (L loc (m@(MorphDecl { morph_ant = ant
+                                 , morph_con = con
+                                 , morph_binds = binds })))
+  = setSrcSpan loc                      $
+    addErrCtxt (morphDeclCtxt1 m)  $
+    do { let Just (L _ cant, []) = hsTyGetAppHead_maybe ant
+       ; let Just (L _ ccon, []) = hsTyGetAppHead_maybe con
+
+       ; (cls_ant, _) <- tcClass cant
+       ; (cls_con, _) <- tcClass ccon
+
+       ; let tyvs = classTyVars cls_con
+       ; let tys = map mkTyVarTy tyvs
+       ; let theta = (mkTyConApp (classTyCon cls_con) tys) :
+                        (mkTyConApp (classTyCon cls_ant) tys) :
+                        (classSCTheta cls_con)
+
+       ; dfun_name <- newDFunName cls_con tys loc
+       ; let dfun = mkDictFunId dfun_name tyvs theta cls_con tys
+
+       ; let morph = Morph { mAnt = cls_ant
+                           , mCon = cls_con
+                           , mDFun = dfun }
+
+       ; let morph_info = MorphInfo { mSpec  = morph
+                                    , mBinds = InstBindings
+                                         { ib_binds = binds
+                                         , ib_tyvars = map Var.varName tyvs
+                                         , ib_pragmas = []
+                                         , ib_extensions = []
+                                         , ib_derived = False } }
+
+       ; return morph_info }
 
 tcClsInstDecl :: LClsInstDecl GhcRn
               -> TcM ([InstInfo GhcRn], [FamInst], [DerivInfo])
@@ -768,14 +821,14 @@ tcDataFamInstDecl mb_clsinfo
 *                                                                      *
 ********************************************************************* -}
 
-tcInstDecls2 :: [LTyClDecl GhcRn] -> [InstInfo GhcRn]
+tcInstDecls2 :: [LTyClDecl GhcRn] -> [InstInfo GhcRn] -> [MorphInfo GhcRn]
              -> TcM (LHsBinds GhcTc)
 -- (a) From each class declaration,
 --      generate any default-method bindings
 -- (b) From each instance decl
 --      generate the dfun binding
 
-tcInstDecls2 tycl_decls inst_decls
+tcInstDecls2 tycl_decls inst_decls morph_decls
   = do  { -- (a) Default methods from class decls
           let class_decls = filter (isClassDecl . unLoc) tycl_decls
         ; dm_binds_s <- mapM tcClassDecl2 class_decls
@@ -789,8 +842,12 @@ tcInstDecls2 tycl_decls inst_decls
         ; inst_binds_s <- tcExtendGlobalValEnv dm_ids $
                           mapM tcInstDecl2 inst_decls
 
+        ; morph_binds_s <- tcExtendGlobalValEnv dm_ids $
+                           mapM tcMorphDecl2 morph_decls
+
           -- Done
-        ; return (dm_binds `unionBags` unionManyBags inst_binds_s) }
+        ; return (dm_binds `unionBags` unionManyBags inst_binds_s
+                           `unionBags` unionManyBags morph_binds_s) }
 
 {- Note [Default methods in the type environment]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -806,13 +863,9 @@ So right here in tcInstDecls2 we must re-extend the type envt with
 the default method Ids replete with their INLINE pragmas.  Urk.
 -}
 
-tcInstDecl2 :: InstInfo GhcRn -> TcM (LHsBinds GhcTc)
-            -- Returns a binding for the dfun
-tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
-  = recoverM (return emptyLHsBinds)             $
-    setSrcSpan loc                              $
-    addErrCtxt (instDeclCtxt2 (idType dfun_id)) $
-    do {  -- Instantiate the instance decl with skolem constants
+tcInstMorphDecl2 :: DFunId -> InstBindings GhcRn -> TcM (LHsBinds GhcTc)
+tcInstMorphDecl2 dfun_id binds
+  = do {  -- Instantiate the instance decl with skolem constants
        ; (inst_tyvars, dfun_theta, inst_head) <- tcSkolDFunType dfun_id
        ; dfun_ev_vars <- newEvVars dfun_theta
                      -- We instantiate the dfun_id with superSkolems.
@@ -823,11 +876,11 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
              (class_tyvars, sc_theta, _, op_items) = classBigSig clas
              sc_theta' = substTheta (zipTvSubst class_tyvars inst_tys) sc_theta
 
-       ; traceTc "tcInstDecl2" (vcat [ppr inst_tyvars, ppr inst_tys, ppr dfun_theta, ppr sc_theta'])
+       ; traceTc "tcInstMorphDecl2" (vcat [ppr dfun_id, ppr (varType dfun_id), ppr inst_tyvars, ppr inst_tys, ppr dfun_theta, ppr sc_theta'])
 
                       -- Deal with 'SPECIALISE instance' pragmas
                       -- See Note [SPECIALISE instance pragmas]
-       ; spec_inst_info@(spec_inst_prags,_) <- tcSpecInstPrags dfun_id ibinds
+       ; spec_inst_info@(spec_inst_prags,_) <- tcSpecInstPrags dfun_id binds
 
          -- Typecheck superclasses and methods
          -- See Note [Typechecking plan for instance declarations]
@@ -844,12 +897,12 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                    ; (meth_ids, meth_binds, meth_implics)
                         <- tcMethods dfun_id clas inst_tyvars dfun_ev_vars
                                      inst_tys dfun_ev_binds spec_inst_info
-                                     op_items ibinds
+                                     op_items binds
 
                    ; return ( sc_ids     ++          meth_ids
                             , sc_binds   `unionBags` meth_binds
                             , sc_implics `unionBags` meth_implics ) }
-
+       ; traceTc "tcInstMorphDecl2 methods: " (vcat [ppr sc_meth_ids, ppr sc_meth_binds])
        ; env <- getLclEnv
        ; emitImplication $
          newImplication { ic_tclvl  = tclvl
@@ -911,11 +964,34 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                                   , abs_binds = unitBag dict_bind
                                   , abs_sig = True }
 
-       ; return (unitBag (L loc main_bind) `unionBags` sc_meth_binds)
+       ; let binds =  unitBag (L loc main_bind) `unionBags` sc_meth_binds
+       ; traceTc "tcInstMorphDecl2, generated binds" $ ppr binds
+       ; return binds
        }
  where
-   dfun_id = instanceDFunId ispec
    loc     = getSrcSpan dfun_id
+
+tcInstDecl2 :: InstInfo GhcRn -> TcM (LHsBinds GhcTc)
+            -- Returns a binding for the dfun
+tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = binds })
+  = recoverM (return emptyLHsBinds)             $
+    setSrcSpan loc                              $
+    addErrCtxt (instDeclCtxt2 (idType dfun_id)) $
+    tcInstMorphDecl2 dfun_id binds
+       where
+       dfun_id = instanceDFunId ispec
+       loc     = getSrcSpan dfun_id
+
+tcMorphDecl2 :: MorphInfo GhcRn -> TcM (LHsBinds GhcTc)
+            -- Returns a binding for the dfun
+tcMorphDecl2 (MorphInfo { mSpec = morph, mBinds = binds })
+  = recoverM (return emptyLHsBinds)             $
+    setSrcSpan loc                              $
+    addErrCtxt (morphDeclCtxt2 morph)           $
+    tcInstMorphDecl2 dfun_id binds
+       where
+       dfun_id = mDFun morph
+       loc     = getSrcSpan dfun_id
 
 addDFunPrags :: DFunId -> [Id] -> DFunId
 -- DFuns need a special Unfolding and InlinePrag
@@ -1850,6 +1926,18 @@ instDeclCtxt2 dfun_ty
 
 inst_decl_ctxt :: SDoc -> SDoc
 inst_decl_ctxt doc = hang (text "In the instance declaration for")
+                        2 (quotes doc)
+
+morphDeclCtxt1 :: MorphDecl GhcRn -> SDoc
+morphDeclCtxt1 morphd
+  = morph_decl_ctxt (ppr morphd)
+
+morphDeclCtxt2 :: Morph -> SDoc
+morphDeclCtxt2 morph
+  = morph_decl_ctxt (ppr morph)
+
+morph_decl_ctxt :: SDoc -> SDoc
+morph_decl_ctxt doc = hang (text "In the morphism declaration")
                         2 (quotes doc)
 
 badBootFamInstDeclErr :: SDoc

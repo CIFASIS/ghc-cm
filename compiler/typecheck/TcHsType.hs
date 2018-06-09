@@ -13,6 +13,7 @@ module TcHsType (
         tcHsSigType, tcHsSigWcType,
         tcHsPartialSigType,
         funsSigCtxt, addSigCtxt, pprSigCtxt,
+        tcClass,
 
         tcHsClsInstType,
         tcHsDeriv, tcHsVectInst,
