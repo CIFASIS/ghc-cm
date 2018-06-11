@@ -108,7 +108,7 @@
 	ignore = untracked
 [submodule "utils/haddock"]
 	path = utils/haddock
-	url = git://git.haskell.org/haddock.git
+	url = git://github.com/cifasis/haddock.git
 	ignore = untracked
 	branch = ghc-head
 [submodule "nofib"]
