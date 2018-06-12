@@ -24,6 +24,7 @@ Compile GHC and try First.hs module in the root directory.
     Linking First ...
     $ ./First
     T 42
+    [A,B,B,C,C]
 
 It works, but how? We did not declare instances for Functor T nor
 Applicative T. Yet the module behaves correctly, and we are even calling
