@@ -283,6 +283,9 @@ class Semigroup a => Monoid a where
         mconcat :: [a] -> a
         mconcat = foldr mappend mempty
 
+class morphism Monoid -> Semigroup where
+    (<>) = mappend
+
 -- | @since 4.9.0.0
 instance Semigroup [a] where
         (<>) = (++)
