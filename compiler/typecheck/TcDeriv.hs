@@ -299,7 +299,7 @@ tcDeriving deriv_infos deriv_decls
     -- See Note [Staging of tcDeriving]
     apply_inst_infos :: [ThetaType -> TcM (InstInfo GhcPs)]
                      -> [DerivSpec ThetaType] -> TcM [InstInfo GhcPs]
-    apply_inst_infos = zipWithM (\f ds -> f (ds_theta ds))
+    apply_inst_infos = zipWithM (\f ds -> expandTheta (ds_theta ds) >>= f)
 
 -- Prints the representable type family instance
 pprRepTy :: FamInst -> SDoc
