@@ -146,6 +146,13 @@ class  Enum a   where
     enumFromTo x y         = map toEnum [fromEnum x .. fromEnum y]
     enumFromThenTo x1 x2 y = map toEnum [fromEnum x1, fromEnum x2 .. fromEnum y]
 
+
+class morphism Enum -> Ord where
+    compare x y = compare (fromEnum x) (fromEnum y)
+
+class morphism Enum -> Eq where
+    x == y = fromEnum x == fromEnum y
+
 -- Default methods for bounded enumerations
 boundedEnumFrom :: (Enum a, Bounded a) => a -> [a]
 boundedEnumFrom n = map toEnum [fromEnum n .. fromEnum (maxBound `asTypeOf` n)]
