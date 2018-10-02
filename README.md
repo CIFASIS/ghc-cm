@@ -1,6 +1,6 @@
 # Class morphisms
 
-Prototype implementation of class morphisms in GHC.
+Prototype implementation of class morphisms in GHC. Read all about in [Improving Typeclass Relations By Being Open](https://www.fceia.unr.edu.ar/~mauro/publications/articles/201807-classMorphisms.html), presented at the [Haskell Symposium 2018](https://www.haskell.org/haskell-symposium/2018/).
 
 ## Quick compile
 
