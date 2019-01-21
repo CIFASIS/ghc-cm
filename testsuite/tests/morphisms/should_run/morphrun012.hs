@@ -54,6 +54,10 @@ instance Monad (Option Int) where
     return = trace "Hey M!" . return'
     (>>=) = (>>==)
 
+instance Applicative (Option Int) where
+    f <*> x = f >>= \ff -> x >>= \xx -> return (ff xx)
+    pure = return
+
 instance Functor (Option Int) where
     fmap f m = trace "Hey F!" $ m >>== (return' . f)
 
