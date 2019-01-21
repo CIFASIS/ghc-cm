@@ -18,7 +18,7 @@ module InstEnv (
         fuzzyClsInstCmp, orphNamesOfClsInst,
 
         InstEnvs(..), VisibleOrphanModules, InstEnv,
-        emptyInstEnv, extendInstEnv, extendMorphEnv
+        emptyInstEnv, extendInstEnv, extendMorphEnv,
         deleteFromInstEnv, deleteDFunFromInstEnv,
         identicalClsInstHead,
         extendInstEnvList, lookupUniqueInstEnv, lookupInstEnv, instEnvElts,

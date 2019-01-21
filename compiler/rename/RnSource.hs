@@ -654,12 +654,10 @@ rnMorphDecl m@(MorphDecl { morph_ant = ant
        ; (con', con_fvs) <- rnLHsType HsTypeCtx con
        ; _   <- case hsTyGetAppHead_maybe ant' of
                   Nothing          -> addErrCtxt (morph_decl_ctxt (ppr m)) $ failWith (expectedClass (ppr ant'))
-                  Just (L _ _, []) -> return ()
-                  _                -> addErrCtxt (morph_decl_ctxt (ppr m)) $ failWith (expectedNoVars (ppr ant'))
+                  Just (dL->L _ _) -> return ()
        ; cls <- case hsTyGetAppHead_maybe con' of
                   Nothing             -> addErrCtxt (morph_decl_ctxt (ppr m)) $ failWith (expectedClass (ppr con'))
-                  Just (L _ cls', []) -> return cls'
-                  _                   -> addErrCtxt (morph_decl_ctxt (ppr m)) $ failWith (expectedNoVars (ppr con'))
+                  Just (dL->L _ cls') -> return cls'
        ; (mbinds', _, meth_fvs) <- rnMethodBinds False cls [] mbinds []
        ; let all_fvs = meth_fvs `plusFV` ant_fvs
                                 `plusFV` con_fvs
@@ -669,8 +667,6 @@ rnMorphDecl m@(MorphDecl { morph_ant = ant
                 , all_fvs ) }
 
        where expectedClass doc = text "Expected " <+> doc <+> text " to be a class."
-
-             expectedNoVars doc = text "Expected " <+> doc <+> text " to have no variables."
 
              morph_decl_ctxt :: SDoc -> SDoc
              morph_decl_ctxt doc = hang (text "In the morphism declaration for")
@@ -1428,7 +1424,7 @@ rnTyClDecls tycl_ds
             do flip concatMapM is (\((id, nm_morph), _) ->
                     case unLoc id of
                       MorphD (MorphDecl { morph_ant = ant }) ->
-                        let Just (L _ ant_nm, _) = hsTyGetAppHead_maybe ant in
+                        let Just (dL->L _ ant_nm) = hsTyGetAppHead_maybe ant in
                         if ant_nm == nm
                         then return [nm_morph]
                         else return []

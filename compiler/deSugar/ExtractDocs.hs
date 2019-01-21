@@ -147,6 +147,7 @@ getInstLoc = \case
     -- equation. This does not happen for data family instances, for some
     -- reason.
     { tfid_eqn = HsIB { hsib_body = FamEqn { feqn_rhs = (dL->L l _) }}}) -> l
+  MorphD { morph_decl = MorphDecl { morph_ant = (dL->L l _) } } -> l -- bogus
   ClsInstD _ (XClsInstDecl _) -> error "getInstLoc"
   DataFamInstD _ (DataFamInstDecl (HsIB _ (XFamEqn _))) -> error "getInstLoc"
   TyFamInstD _ (TyFamInstDecl (HsIB _ (XFamEqn _))) -> error "getInstLoc"

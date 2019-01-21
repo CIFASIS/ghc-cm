@@ -1458,7 +1458,7 @@ tcSplitSigmaTy ty = case tcSplitForAllTys ty of
                                         (theta, tau) -> (tvs, theta, tau)
 
 tcSplitSigmaTyBndrs :: Type -> ([TyVarBinder], ThetaType, Type)
-tcSplitSigmaTyBndrs ty = case tcSplitForAllTyVarBndrs ty of
+tcSplitSigmaTyBndrs ty = case tcSplitForAllVarBndrs ty of
                              (tvbs, rho) -> case tcSplitPhiTy rho of
                                               (theta, tau) -> (tvbs, theta, tau)
 

@@ -11,12 +11,10 @@
 
 module TcHsType (
         -- Type signatures
-        tcClass,
         kcHsSigType, tcClassSigType,
         tcHsSigType, tcHsSigWcType,
         tcHsPartialSigType,
         funsSigCtxt, addSigCtxt, pprSigCtxt,
-        tcClass,
 
         tcHsClsInstType,
         tcHsDeriv, tcDerivStrategy,

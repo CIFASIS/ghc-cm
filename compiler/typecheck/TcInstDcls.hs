@@ -66,6 +66,7 @@ import SrcLoc
 import Util
 import BooleanFormula ( isUnsatisfied, pprBooleanFormulaNice )
 import qualified GHC.LanguageExtensions as LangExt
+import MkId ( mkDictFunId )
 
 import Control.Monad
 import Maybes
@@ -468,21 +469,12 @@ tcLocalInstDecl :: LInstDecl GhcRn
         --
         -- We check for respectable instance type, and context
 tcLocalInstDecl (L loc (TyFamInstD { tfid_inst = decl }))
-<<<<<<< HEAD
   = do { fam_inst <- tcTyFamInstDecl NotAssociated (L loc decl)
-       ; return ([], [fam_inst], []) }
-
-tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
-  = do { (fam_inst, m_deriv_info) <- tcDataFamInstDecl NotAssociated (L loc decl)
-       ; return ([], [fam_inst], maybeToList m_deriv_info) }
-=======
-  = do { fam_inst <- tcTyFamInstDecl Nothing (L loc decl)
        ; return ([], [], [fam_inst], []) }
 
 tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
-  = do { (fam_inst, m_deriv_info) <- tcDataFamInstDecl Nothing (L loc decl)
+  = do { (fam_inst, m_deriv_info) <- tcDataFamInstDecl NotAssociated (L loc decl)
        ; return ([], [], [fam_inst], maybeToList m_deriv_info) }
->>>>>>> d80e7aa5e4... typecheck: typechecking morphisms
 
 tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
   = do { (insts, fam_insts, deriv_infos) <- tcClsInstDecl (L loc decl)
@@ -492,6 +484,8 @@ tcLocalInstDecl (L loc (MorphD { morph_decl = decl }))
   = do { morphs <- tcMorphDecl (L loc decl)
        ; return ([], [morphs], [], []) }
 
+tcLocalInstDecl (L _ (XInstDecl _)) = panic "tcLocalInstDecl"
+
 tcMorphDecl :: LMorphDecl GhcRn
             -> TcM (MorphInfo GhcRn)
 tcMorphDecl (L loc (m@(MorphDecl { morph_ant = ant
@@ -499,11 +493,11 @@ tcMorphDecl (L loc (m@(MorphDecl { morph_ant = ant
                                  , morph_binds = binds })))
   = setSrcSpan loc                      $
     addErrCtxt (morphDeclCtxt1 m)  $
-    do { let Just (L _ cant, []) = hsTyGetAppHead_maybe ant
-       ; let Just (L _ ccon, []) = hsTyGetAppHead_maybe con
+    do { let Just (L _ cant) = hsTyGetAppHead_maybe ant
+       ; let Just (L _ ccon) = hsTyGetAppHead_maybe con
 
-       ; (cls_ant, _) <- tcClass cant
-       ; (cls_con, _) <- tcClass ccon
+       ; cls_ant <- tcLookupClass cant
+       ; cls_con <- tcLookupClass ccon
 
        ; let tyvs = classTyVars cls_con
        ; let tys = map mkTyVarTy tyvs
@@ -527,8 +521,6 @@ tcMorphDecl (L loc (m@(MorphDecl { morph_ant = ant
                                          , ib_derived = False } }
 
        ; return morph_info }
-
-tcLocalInstDecl (L _ (XInstDecl _)) = panic "tcLocalInstDecl"
 
 tcClsInstDecl :: LClsInstDecl GhcRn
               -> TcM ([InstInfo GhcRn], [FamInst], [DerivInfo])
@@ -2287,20 +2279,19 @@ mkBind (ClsInstMorph { info_cls = cls_inst
        dfun_ev_binds_var <- newTcEvBinds
        let dfun_ev_binds = TcEvBinds dfun_ev_binds_var
 
-       ((sc_ids, sc_binds, sc_implics), tclvl)
+       (tclvl, (sc_ids, sc_binds, sc_implics))
               <- pushTcLevelM $
                   tcSuperClasses dfun_c clas inst_tyvars dfun_ev_vars
                                  inst_tys dfun_ev_binds sc_theta'
 
-       env <- getLclEnv
+       imp <- newImplication
        emitImplication $
-         newImplication { ic_tclvl  = tclvl
-                        , ic_skols  = inst_tyvars
-                        , ic_given  = dfun_ev_vars
-                        , ic_wanted = mkImplicWC sc_implics
-                        , ic_binds  = dfun_ev_binds_var
-                        , ic_env    = env
-                        , ic_info   = InstSkol }
+         imp { ic_tclvl  = tclvl
+             , ic_skols  = inst_tyvars
+             , ic_given  = dfun_ev_vars
+             , ic_wanted = mkImplicWC sc_implics
+             , ic_binds  = dfun_ev_binds_var
+             , ic_info   = InstSkol }
        -------
        -- Generating the let expression
        uniq <- newUnique
